@@ -14,11 +14,11 @@ LIBRARIES= #-lquadmath
 
 # List of source codes
 CSOURCES=
-FSOURCES=DoiBoxModule.f90 MinHeapModule.f90 HydroGridModule.f90
+FSOURCES=DoiBoxModule.f90 MinHeapModule.f90
 
 # From HydroGrid library:
 CSOURCES += RNGs.c visit_writer.c
-FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 VisitWriter.f90
+FSOURCES += HydroGridModule.f90 Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 VisitWriter.f90
 
 OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
 

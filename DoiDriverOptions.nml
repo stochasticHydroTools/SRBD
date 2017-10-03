@@ -1,0 +1,97 @@
+! This input file implements the A+B<->C reversible association model
+
+&DoiDriverOptions
+   basename = "ABC" ! Base filename for output files
+   ! Total number of time steps:
+   nSteps = 10
+   ! Number of steps between two consecutive sets of data in HydroGridAnalysis.
+   nSampleStep = 1 ! Set to 0 if no data are to be saved.
+   ! Number of steps between two consecutive sets of data printed to file and screen.
+   nOutputStep = 1 !  Set to 0 if no data are to be printed.
+   ! Number of equilibration steps to be skipped without saving data to files.
+   nEquilibrationStep = 1
+   ! Number of steps between two consecutive writings of HydroGrid statistics. 
+   nStatsStep = 1 ! Set to 0 if only written at the end.
+   seed = 0 ! Set to zero for unpredictable seed based on clock
+/
+
+
+&DoiBoxOptions
+   problem_type = 2 ! 0=uniform, 1=half A's, half B's (interface), 2=stripe
+
+   !-------------------------------
+   ! Physical parameters:
+   ! Enter reactionRate(nReactions)
+   reactionRate = 1
+   ! Enter reactionNetwork(nSpecies,2,nReactions)
+   reactionNetwork = 2, 0
+   reactionScheme = 1 ! 0 for RDME, 1 for IRDME
+   ! Enter speciesDiffusivity(nSpecies)
+   speciesDiffusivity = 1
+   ! Enter speciesDiameter(nSpecies)
+   speciesDiameter = 0.3
+   ! Enter numberDensity(nSpecies)
+   numberDensity = 10
+   !-------------------------------
+   ! Domain parameters:
+   ! Domain size:
+   ! Large sampling cells (twice the collision):
+   ! dx and dt:
+   ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
+   sampleCellLength = 1 1 1 ! size: nDimensions
+   nHydroCells(1:3) = 3 3 3 ! size: nDimensions
+   nBlockingCollision = 1 1 1 ! Number of DOI cells per block of sampling cells
+   nBlockingSample = 1 1 1 ! Smallest possible division (block) of sampling grid
+   wallBCs%wallType = 1 1, 1 1, 1 1 ! -1 for reservoir, 0 for free, 1 for periodic
+   
+   ! Reservoirs:
+   addDensityFluctuations = F ! For initial fillings of cells.
+   reservoirThickness=1 ! Width of reservoir region   
+
+   ! Misc:
+   usePoisson = F ! Not used in the code
+   fractionExtraParticles = 1
+   inputTimestep = 1
+   nMaxParticlesPerCell = 0 ! Set to zero to estimate numerically
+   strangSplitting = .true.
+   randomShift = .true.
+   diffuseByHopping = 0 ! 0=continuous walk, 1=discrete walk, 2=remain on lattice
+/
+
+
+&HydroAnalysisOptions
+   storeConserved=F
+   
+   writeSnapshotVTK=T ! Save snapshots of the instantaneous fields
+
+   ! Means file: column 1=y, 2=rho, 3=v_x, 4=v_y, 5=T, 6=c
+   writeMeansVTK = F ! Write the means to a VTK file
+
+   ! Variances
+   writeVariancesVTK = F ! Should we save a VTK file
+   nVariances = 0 ! How many co-variances to calculate and save
+   !correlationCell = 5 5 1 ! The index of the special cell, if calculating correlations in real space
+      ! If so, then use a negative integer for the first variable in variancePairs
+      ! By default correlationCell is the cell in the center of the domain
+   variancePairs = ""
+      ! species1 variable1 species2 variable2
+   
+   ! Static structure factors
+   writeSpectrumVTK = T
+   writeAbsValue = T ! Only write absolute values of complex values to VTK file?
+   nStructureFactors = 0
+   structureFactorPairs = "0"
+      ! species1 variable1 species2 variable2
+   
+   ! Dynamic structure factors:
+   nWavenumbers=0
+   ! Shape (2,nWavenumbers) if 2D (Nz=1), or (3,nWavenumbers):
+   selectedWavenumbers=""
+   nSavedSnapshots=100
+   
+   outputFolder = "./"
+   filePrefix = "RDME" ! Prefix for all file names
+   axisToPrint = 2 ! 1=x, 2=y, 3=z axis
+   periodic = T ! Is the system periodic along the y axes
+
+/

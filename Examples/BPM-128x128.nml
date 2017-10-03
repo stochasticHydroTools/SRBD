@@ -1,0 +1,105 @@
+! This test is the simplified version of Baras-Pearson-Mansour (BPM) model: it simulates the following reaction network
+!     (1) U + W --> V + W
+!     (2) V + V --> W
+!     (3) W     --> V + V
+!     (4) V     --> 0
+!     (5) 0     --> V
+!     (6) U     --> 0
+!     (7) 0     --> U
+
+
+&DoiDriverOptions
+   basename = "Turing2D"
+   nSteps = 50000
+   nSampleStep = 500
+   nOutputStep = 50
+   nEquilibrationStep = 0
+   nStatsStep = 500
+   seed = 0
+/
+
+
+&DoiBoxOptions
+   reactionScheme = 0 ! 0 for RDME, 1 for IRDME
+
+   !-------------------------------
+   ! Physical parameters:
+   reactionRate =  0.000200000000000   0.000200000000000   1.000000000000000   0.036666630000000   4.444445555550000   0.003333330000000 16.666650000000001
+   reactionNetwork = 1 0 1, 0 1 1; 0 2 0, 0 0 1; 0 0 1, 0 2 0; 0 1 0, 0 0 0; 0 0 0, 0 1 0; 1 0 0, 0 0 0; 0 0 0, 1 0 0
+      
+   ! Species are U/V/W
+   speciesDiffusivity = 0.1 0.01 0.01
+   speciesDiameter = 0.25 0.25 0.25
+   
+   ! Initial conditions
+   !numberDensity = 1513.269663 438.1877579 38.40170224 ! Exact fixed point
+   numberDensity = 1685.8 533.5 56.38 ! Start on the limit cycle
+   
+   !-------------------------------
+   ! Domain parameters:
+   ! Domain size:
+   ! Large sampling cells (twice the collision):
+   
+   sampleCellLength = 0.25 0.25 0.5 ! This is always in 3D since it gives volume
+   nSampleCells(1:2) = 128 128 ! 2D
+
+   nBlockingCollision = 1 1 1 ! Number of DOI cells per block of sampling cells
+   nBlockingSample = 1 1 1 ! Smallest possible division (block) of sampling grid
+   wallBCs%wallType = 1 1, 1 1 ! All periodic
+   
+   ! Reservoirs:
+   addDensityFluctuations = T ! Add density fluctuations on top of hydro values?
+   reservoirThickness=1 ! Width of reservoir region
+
+   !-------------------------------
+   ! Doi parameters:
+   
+   ! dx and dt:
+   ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
+   inputTimestep = 0.2
+
+   ! Misc:
+   usePoisson = T
+   fractionExtraParticles = 1
+   nMaxParticlesPerCell = 1000 ! Set to zero to estimate numerically
+   strangSplitting = .true.
+   randomShift = .true.
+/
+
+
+&HydroAnalysisOptions
+   storeConserved=F
+   
+   writeSnapshotVTK=T ! Save snapshots of the instantaneous fields
+
+   ! Means file: column 1=y, 2=rho, 3=v_x, 4=v_y, 5=T, 6=c
+   writeMeansVTK = F ! Write the means to a VTK file
+
+   ! Variances
+   writeVariancesVTK = F ! Should we save a VTK file
+   nVariances = 0 ! How many co-variances to calculate and save
+   !correlationCell = 5 5 1 ! The index of the special cell, if calculating correlations in real space
+      ! If so, then use a negative integer for the first variable in variancePairs
+      ! By default correlationCell is the cell in the center of the domain
+   variancePairs = ""
+      ! species1 variable1 species2 variable2
+   
+   ! Static structure factors
+   writeSpectrumVTK = T
+   writeAbsValue = T ! Only write absolute values of complex values to VTK file?
+   nStructureFactors = 0
+   structureFactorPairs = "0"
+      ! species1 variable1 species2 variable2
+   
+   ! Dynamic structure factors:
+   nWavenumbers=0
+   ! Shape (2,nWavenumbers) if 2D (Nz=1), or (3,nWavenumbers):
+   selectedWavenumbers=""
+   nSavedSnapshots=100
+   
+   outputFolder = "./"
+   filePrefix = "Turing2D" ! Prefix for all file names
+   axisToPrint = 2 ! 1=x, 2=y, 3=z axis
+   periodic = T ! Is the system periodic along the y axes
+
+/

@@ -1,0 +1,69 @@
+# Some paths for included sources:
+HYDROLIB_PATH=$(SRC_HYDROLIB)
+
+# Look for sources in the repository:
+vpath %.c $(SRC_DOI)
+vpath %.h $(SRC_DOI)
+vpath %.f90 $(SRC_DOI)
+vpath %.c $(SRC_HYDROLIB)
+vpath %.h $(SRC_HYDROLIB)
+vpath %.f90 $(SRC_HYDROLIB)
+
+# Libraries o link
+LIBRARIES= #-lquadmath
+
+# List of source codes
+CSOURCES=
+FSOURCES=DoiBoxModule.f90 MinHeapModule.f90 HydroGridModule.f90
+
+# From HydroGrid library:
+CSOURCES += RNGs.c visit_writer.c
+FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 VisitWriter.f90
+
+OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
+
+all: DOI.exe
+
+clean:
+	rm -rf *.o *.mod DOI.exe
+
+# HydroGrid make rules:
+#--------------------------
+Precision.o: Precision.f90
+	$(FC) -c $<
+
+Random.o: Random.f90 Precision.o
+	$(FC) -c $<
+
+RNGEngine.o: RNGEngine.f90
+	$(FC) -c $<
+
+NURNGs.o: NURNGs.f90 RNGEngine.o
+	$(FC) -c $<
+
+RNG.o: RNG.f90 Random.o RNGEngine.o NURNGs.o
+	$(FC) -c $<
+
+RNGs.o: RNGs.c
+	$(CC) -c -DBL_FORT_USE_UNDERSCORE $<
+                        
+visit_writer.o: visit_writer.c
+	$(CC) -c $<
+
+FFTW.o: FFTW.f90 Precision.o
+	$(FC) -c $<
+
+VisitWriter.o: VisitWriter.f90
+	$(FC) -c $<
+
+HydroGridModule.o: HydroGridModule.f90 FFTW.o VisitWriter.o
+	$(FC) -c $<
+
+MinHeapModule.o: MinHeapModule.f90
+	$(FC) -c $<
+
+DoiBoxModule.o: DoiBoxModule.f90 MinHeapModule.o RNG.o
+	$(FC) -c $<
+
+DOI.exe: main.f90 $(OBJECTS) $(LIBRARIES)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) -L/usr/lib64/ -lfftw3 -lfftw3f -lm 

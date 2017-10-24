@@ -36,6 +36,7 @@ Note that this particle code is serial and it is nontrivial to parallelize it du
 The input parameters are set via an input file that takes the form of a Fortran _namelist_ file. An example with some comments is provided in `DoiDriverOptions.nml`. Most of the input fields should be obvious but not all. The namelist `DoiDriverOptions` is read by `main.f90` and sets some basic parameters like number of time steps and how often to save statistics. The main namelist is `DoiBoxOptions` which sets all of the parameters for the SRBD algorithm.
 
 The reaction network is specified in terms of stochiometric coefficients for each species on the left and right hand side of a reaction via the array `reactionNetwork(nSpecies,2,nReactions)`. The maximum allowed number of reactants is 2 (binary reactions). As an example, the Baras-Pearson-Mansour (BPM) model described in the paper, with species `UVW` and the 7-reaction network:
+
 ---
 ```
 (1) U + W --> V + W
@@ -47,9 +48,13 @@ The reaction network is specified in terms of stochiometric coefficients for eac
 (7) 0     --> U
 ```
 ---
+
 is entered in the input file as:
+
 ``reactionNetwork(1:3,1:2,1:7) = 1 0 1, 0 1 1; 0 2 0, 0 0 1; 0 0 1, 0 2 0; 0 1 0, 0 0 0; 0 0 0, 0 1 0; 1 0 0, 0 0 0; 0 0 0, 1 0 0``
+
 Note that Fortran is rather flexible with the formatting and one split this input into multiple lines (but some compilers may be more picky), for example, the first reaction `U + W --> V + W` can be specified on its own line as:
+
 ``reactionNetwork(1:3,1:2,1) = 1 0 1, 0 1 1``
 
 One thing that is likely to be confusing at first is the fact that the code distinguishes between two kinds of grids and thus grid cells. The first is a _hydro_ or _sampling_ grid used in initialization and for collecting statistics. It is how particle data is converted into data on a grid for potential coupling to continuum fluid solvers and for output of plot files via `HydroGrid`. This grid has nothing to do per se with the _Doi_ or _reaction_ grid used to process reactions (called collisions in the code), which can be finer. These two grids must be commensurate in the sense that:
@@ -59,12 +64,16 @@ One thing that is likely to be confusing at first is the fact that the code dist
 That is, `nBlockingSample` sampling/hydro cells equal `nBlockingCollisions` collision cells. The default and simplest value for these _blocking_ factors is 1.
 
 Note that the size of the domain and the number of cells can be set independently along each Cartesian dimension. The code internally, however, treats all systems as three dimensional and each cell has a `dx`, a `dy` and a `dz`. This way one can associate a 3D volume to 1D or 2D cells. This is useful when one wants to use number densities in 3D units (particles per unit volume) even though the setup is 1D or 2D. For example,
+
+---
 ```
    sampleCellLength = 0.5 0.5 0.5 ! This is always in 3D since it gives volume
    nSampleCells(1:2) = 64 64 ! 2D grid of 64x64 cells
    nBlockingCollision = 1 1 1 ! no difference between sampling and Doi cells
    nBlockingSample = 1 1 1 ! no difference between sampling and Doi cells
 ```
+---
+
 creates a grid of 64^2 cells with volume 0.5^3.
 
 ## 3. Examples

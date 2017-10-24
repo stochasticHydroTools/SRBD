@@ -17,13 +17,11 @@ The code is written in Fortran 95 with some extensions from Fortran 2003, and ca
 The code was written on top of a DSMC code and it is not as modular as it could be. Most importantly, there are some constants that are hard-wired as Fortran `parameter` values, and need to specified at compile time and not at runtime. This is not hard to improve and if you do it please let us know. In particular, you need to edit the following lines at the top of the main source code `DoiBoxModule.f90' each time you want to study a new problem:
 
 ---
-
 ```
 integer, parameter :: nSpecies = 3, nReactions = 2 ! For example, A+B->C, C->A+B
 integer, parameter :: nDimensions = 2 ! Run in 1, 2 or 3 dimensions
 integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
 ```
-
 ---
 
 Note that we provide the 3 required values of `neighborhoodSize`, so just remove the comment mark `!` for the line corresponding to `nDimensions` and comment out the remaining lines.
@@ -38,7 +36,7 @@ Note that this particle code is serial and it is nontrivial to parallelize it du
 The input parameters are set via an input file that takes the form of a Fortran _namelist_ file. An example with some comments is provided in `DoiDriverOptions.nml`. Most of the input fields should be obvious but not all. The namelist `DoiDriverOptions` is read by `main.f90` and sets some basic parameters like number of time steps and how often to save statistics. The main namelist is `DoiBoxOptions` which sets all of the parameters for the SRBD algorithm.
 
 The reaction network is specified in terms of stochiometric coefficients for each species on the left and right hand side of a reaction via the array `reactionNetwork(nSpecies,2,nReactions)`. The maximum allowed number of reactants is 2 (binary reactions). As an example, the Baras-Pearson-Mansour (BPM) model described in the paper, with species `UVW` and the 7-reaction network:
-
+---
 ```
 (1) U + W --> V + W
 (2) V + V --> W
@@ -48,6 +46,7 @@ The reaction network is specified in terms of stochiometric coefficients for eac
 (6) U     --> 0
 (7) 0     --> U
 ```
+---
 is entered in the input file as:
 ``reactionNetwork(1:3,1:2,1:7) = 1 0 1, 0 1 1; 0 2 0, 0 0 1; 0 0 1, 0 2 0; 0 1 0, 0 0 0; 0 0 0, 0 1 0; 1 0 0, 0 0 0; 0 0 0, 1 0 0``
 Note that Fortran is rather flexible with the formatting and one split this input into multiple lines (but some compilers may be more picky), for example, the first reaction `U + W --> V + W` can be specified on its own line as:

@@ -253,7 +253,7 @@ subroutine readDoiParameters (fileUnit) ! Read parameters from a NAMELIST file
       nBlockingSample, nBlockingCollision, fractionExtraParticles, &
       usePoisson, wallBCs, addDensityFluctuations, reservoirThickness, &
       inputTimestep, strangSplitting, randomShift, &
-      nMaxParticlesPerCell, randomShift, diffuseByHopping, problem_type
+      nMaxParticlesPerCell, diffuseByHopping, problem_type
    
    if (fileUnit<=0) then ! Default
       if(writeOutput) write(*,*) "Reading Doi parameters from namelist file"

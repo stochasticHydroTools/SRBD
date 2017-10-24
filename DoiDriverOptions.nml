@@ -17,48 +17,53 @@
 
 
 &DoiBoxOptions
-   problem_type = 2 ! 0=uniform, 1=half A's, half B's (interface), 2=stripe
+   problem_type = 2 ! Select initialization: 0=uniform, 1=half A's, half B's (interface), 2=stripe
 
    !-------------------------------
    ! Physical parameters:
    ! Enter reactionRate(nReactions)
    reactionRate = 1
-   ! Enter reactionNetwork(nSpecies,2,nReactions)
+   ! Enter stochiometric coefficients reactionNetwork(nSpecies,2,nReactions)
    reactionNetwork = 2, 0
    reactionScheme = 1 ! 0 for RDME, 1 for IRDME
    ! Enter speciesDiffusivity(nSpecies)
    speciesDiffusivity = 1
    ! Enter speciesDiameter(nSpecies)
    speciesDiameter = 0.3
-   ! Enter numberDensity(nSpecies)
+   ! Enter initial number densities numberDensity(nSpecies)
    numberDensity = 10
+   
    !-------------------------------
    ! Domain parameters:
-   ! Domain size:
-   ! Large sampling cells (twice the collision):
-   ! dx and dt:
+   ! Domain size is (nBlockingSample * nHydroCells * sampleCellLength)
+   ! It is divided into (nBlockingCollision * nHydroCells) DOI cells used to process reactions
+   ! This means that the grid spacing used to process collisions is:
    ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
-   sampleCellLength = 1 1 1 ! size: nDimensions
+   sampleCellLength = 1.0 1.0 1.0 ! size: nDimensions
    nHydroCells(1:3) = 3 3 3 ! size: nDimensions
    nBlockingCollision = 1 1 1 ! Number of DOI cells per block of sampling cells
    nBlockingSample = 1 1 1 ! Smallest possible division (block) of sampling grid
    wallBCs%wallType = 1 1, 1 1, 1 1 ! -1 for reservoir, 0 for free, 1 for periodic
    
-   ! Reservoirs:
-   addDensityFluctuations = F ! For initial fillings of cells.
-   reservoirThickness=1 ! Width of reservoir region   
+   !-------------------------------   
+   ! Time stepping:
+   inputTimestep = 1.0 ! Time step size dt
+   strangSplitting = .true. ! Use Strang (T) or Lie (F) splitting
+   
+   ! Initial conditions:
+   !-------------------------------      
+   addDensityFluctuations = F ! For initial fillings of cells. If set to true=T the initial state will have fluctuations
+   usePoisson = T ! Initialize with Poisson (T) or Gaussian (F) fluctuations if addDensityFluctuations=T
 
-   ! Misc:
-   usePoisson = F ! Not used in the code
-   fractionExtraParticles = 1
-   inputTimestep = 1
-   nMaxParticlesPerCell = 0 ! Set to zero to estimate numerically
-   strangSplitting = .true.
-   randomShift = .true.
-   diffuseByHopping = 0 ! 0=continuous walk, 1=discrete walk, 2=remain on lattice
+   ! Other parameters:
+   !-------------------------------      
+   fractionExtraParticles = 1 ! The code will allocate space for (1+fractionExtraParticles) times the initial number of particles
+   nMaxParticlesPerCell = 0 ! Set to zero to estimate numerically: Used to accelerate the building of some data structures
+   randomShift = .true. ! Should we randomly shift the reaction grid in S-BD-RME (T) or keep it fixed (F)
+   diffuseByHopping = 0 ! How do particles diffuse: 0=continuous walk, 1=discrete walk, 2=remain on lattice
 /
 
-
+! This is used by HydroGrid library, see its documentation
 &HydroAnalysisOptions
    storeConserved=F
    

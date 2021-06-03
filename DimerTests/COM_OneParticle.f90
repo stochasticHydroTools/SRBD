@@ -26,10 +26,11 @@ program test
 
         ! Brownian Step
         subroutine brownianStep(r, pos, i, tau)
-            integer i 
-            real tau, disp
-            real, dimension(3) :: r 
-            real, dimension(3,n+1) :: pos
+            integer , intent(in) :: i 
+            real, intent(in) :: tau
+            real disp
+            real, dimension(3), intent(inout) :: r 
+            real, dimension(3,n+1), intent(inout) :: pos
             real :: D = 9 ! Diffusion coefficient of species A
 
             call NormalRNGVec(numbers=disp, n_numbers=3) ! Mean zero and variance one
@@ -40,7 +41,7 @@ program test
         
         ! Write to File
         subroutine writeToFile(pos)
-            real, dimension(3,n+1) :: pos
+            real, dimension(3,n+1), intent(in) :: pos
 
             open(7,file = 'output.txt')
             write(7,*) pos

@@ -22,8 +22,9 @@ program EM
             real(wp), intent(in) :: dt, a, visc, k, l0
             integer, intent(in) :: nsteps
             real(wp), dimension(3), intent(inout) :: r1, r2
-            real(wp), parameter :: KB = 1.38065E-23_wp, T = 300, pi = 4.0_wp*ATAN(1.0_wp)
-            real(wp) :: disp, mu, l12
+            real(wp), dimension(3) :: disp
+            real(wp), parameter :: KB = 1.38065E-23_wp, T = 300.0_wp, pi = 4.0_wp*ATAN(1.0_wp)
+            real(wp) mu, l12
 
             ! Local Variables
             integer :: i
@@ -41,13 +42,11 @@ program EM
             !end do   
 
             ! Brownian Motion with Deterministic Drift Realization
-            do i = 1, nsteps
+            do i = 1, nsteps + 1
                 call NormalRNGVec(numbers=disp, n_numbers= 3) ! Mean zero and variance one
-                r1 = r1 + (mu * k * (l12 - l0) * (r1-r2) / l12) * dt + sqrt(2*KB*T*dt)*disp ! Apply one Euler-Maruyama Step        
+                r1 = r1 + (mu * k * (l12 - l0) * (r1-r2) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp ! Apply one Euler-Maruyama Step        
             end do   
 
         end subroutine      
  
 end program
-
-

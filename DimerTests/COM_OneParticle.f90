@@ -1,6 +1,5 @@
 ! File to diffuse and gather data on ONE particle
 program test
-    use MinHeapModule
     use BoxLibRNGs ! Random number generation
     implicit none
 

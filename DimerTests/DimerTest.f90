@@ -1,12 +1,16 @@
 program EM 
-    use MinHeapModule
+    use Precision
     use BoxLibRNGs ! Random number generation
     implicit none
-    real, dimension(3) :: r1, r2
-    r1 = (/0.0, 0.0, 0.0/)
-    r2 = (/0.0, 0.0, 0.5/)
 
-    call Euler_Maruyama(0.05, 100, 1.0, 3.0, 5.0, 1.0, r1, r2)
+    integer, parameter :: wp = r_sp ! Double precision
+    
+    real(wp), dimension(3) :: r1, r2
+    
+    r1 = (/0.0_wp, 0.0_wp, 0.0_wp/)
+    r2 = (/0.0_wp, 0.0_wp, 0.5_wp/)
+
+    call Euler_Maruyama(0.05_wp, 100, 1.0_wp, 3.0_wp, 5.0_wp, 1.0_wp, r1, r2)
 
     print *, r1
 
@@ -15,11 +19,11 @@ program EM
         ! r1 is the position of the bead which we are diffusing by one time step. 
         subroutine Euler_Maruyama(dt,nsteps,a,visc,k,l0,r1,r2)
             implicit none
-            real, intent(in) :: dt, a, visc, k, l0
+            real(wp), intent(in) :: dt, a, visc, k, l0
             integer, intent(in) :: nsteps
-            real, dimension(3), intent(inout) :: r1, r2
-            real, parameter :: KB = 1.38065*(10**(-23)), T = 300, pi = 4.D0*DATAN(1.D0)
-            real :: disp, mu, l12
+            real(wp), dimension(3), intent(inout) :: r1, r2
+            real(wp), parameter :: KB = 1.38065E-23_wp, T = 300, pi = 4.0_wp*ATAN(1.0_wp)
+            real(wp) :: disp, mu, l12
 
             ! Local Variables
             integer :: i
@@ -42,9 +46,7 @@ program EM
                 r1 = r1 + (mu * k * (l12 - l0) * (r1-r2) / l12) * dt + sqrt(2*KB*T*dt)*disp ! Apply one Euler-Maruyama Step        
             end do   
 
-        end subroutine
-
-      
+        end subroutine      
  
 end program
 

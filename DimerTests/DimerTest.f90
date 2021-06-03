@@ -2,21 +2,25 @@ program EM
     use MinHeapModule
     use BoxLibRNGs ! Random number generation
     implicit none
-    real, dimension(3) :: r1, r2, x
+    real, dimension(3) :: r1, r2
     r1 = (/0.0, 0.0, 0.0/)
     r2 = (/0.0, 0.0, 0.5/)
 
     call Euler_Maruyama(0.05, 100, 1.0, 3.0, 5.0, 1.0, r1, r2)
 
-    contains 
+    print *, r1
 
+    contains 
+     
         ! r1 is the position of the bead which we are diffusing by one time step. 
         subroutine Euler_Maruyama(dt,nsteps,a,visc,k,l0,r1,r2)
-            real :: dt, disp, a, visc, k, l0, mu, l12
-            integer :: nsteps
+            implicit none
+            real, intent(in) :: dt, a, visc, k, l0
+            integer, intent(in) :: nsteps
+            real, dimension(3), intent(inout) :: r1, r2
             real, parameter :: KB = 1.38065*(10**(-23)), T = 300, pi = 4.D0*DATAN(1.D0)
-            real, dimension(3) :: r1, r2
-        
+            real :: disp, mu, l12
+
             ! Local Variables
             integer :: i
 
@@ -39,6 +43,8 @@ program EM
             end do   
 
         end subroutine
+
+      
  
 end program
 

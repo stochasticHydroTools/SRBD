@@ -42,7 +42,7 @@ program EM
             !end do   
 
             ! Brownian Motion with Deterministic Drift Realization
-            do i = 1, nsteps + 1
+            do i = 1, nsteps
                 call NormalRNGVec(numbers=disp, n_numbers= 3) ! Mean zero and variance one
                 r1 = r1 + (mu * k * (l12 - l0) * (r1-r2) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp ! Apply one Euler-Maruyama Step        
             end do   

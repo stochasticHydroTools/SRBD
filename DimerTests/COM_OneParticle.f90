@@ -1,5 +1,6 @@
 ! File to diffuse and gather data on ONE particle
 program test
+    use MinHeapModule
     use BoxLibRNGs ! Random number generation
     implicit none
 
@@ -27,7 +28,7 @@ program test
         subroutine brownianStep(r, pos, i, tau)
             integer , intent(in) :: i 
             real, intent(in) :: tau
-            real disp
+            real, dimension(3) :: disp
             real, dimension(3), intent(inout) :: r 
             real, dimension(3,n+1), intent(inout) :: pos
             real :: D = 9 ! Diffusion coefficient of species A

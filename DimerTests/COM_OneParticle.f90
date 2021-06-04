@@ -5,18 +5,20 @@ program OneParticle
     implicit none
 
     integer, parameter      :: wp = r_sp
-
-    real(wp)                :: tau = 1.0_wp/(0.1_wp)
+    real, parameter         :: pi = 4.0_wp*ATAN(1.0_wp)
+    real(wp)                :: tau
     real(wp), dimension(3)  :: r = 0.0_wp
     real(wp), allocatable   :: pos(:,:)
     integer                 :: n , i
 
     n = 100 ! Number of data entries (not including the starting point)
+    tau = 0.001_wp      ! Should be very small. 
+
     allocate(pos(3,n + 1))
     pos(:,1) = r
 
     do i = 1, n
-        call brownianStep(r, pos, i, tau)
+        call brownianStep(pos, i, tau)
     end do
 
     ! Write to File
@@ -27,11 +29,10 @@ program OneParticle
     contains
 
         ! Brownian Step
-        subroutine brownianStep(r, pos, i, tau)
+        subroutine brownianStep(pos, i, tau)
             integer , intent(in)                        :: i 
             real(wp), intent(in)                        :: tau
             real(wp), dimension(3)                      :: disp
-            real(wp), dimension(3), intent(inout)       :: r 
             real(wp), dimension(3,n+1), intent(inout)   :: pos
             real(wp)                                    :: D = 9 ! Diffusion coefficient of species A
 

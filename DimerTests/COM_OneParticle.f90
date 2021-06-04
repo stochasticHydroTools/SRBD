@@ -46,7 +46,7 @@ program OneParticle
         ! Write to File
         subroutine writeToFile(pos,n)
             integer, intent(in) :: n
-            real(wp), dimension(3,n+1), intent(in) :: pos_wp
+            real(wp), dimension(3,n+1), intent(in) :: pos
             
 
             open(unit=2, file='data1.txt', ACTION="write", STATUS="replace")

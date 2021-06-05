@@ -6,15 +6,15 @@ program ParticleSpring
     ! Look at time scales LARGER than tau. 
 
     integer, parameter                  :: wp = r_sp
-    real(wp), parameter                 :: k = 1.0_wp, l0 = 1.0_wp, a = 1.0_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 1.0_wp
+    real(wp), parameter                 :: k = 10.0_wp, l0 = 1.0_wp, a = 0.2_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 1_wp
     real(wp), dimension(3)              :: r1, r2, rcm
     integer n, i
     real(wp), allocatable               :: pos1(:,:), pos2(:,:), pos_cm(:,:)
     real(wp)                            :: tau
 
-    tau = k * 1.0_wp/(6*pi*visc*a)
+    tau = (6*pi*a*visc) / (k)
 
-    n = 100
+    n = 10000
 
     ! Initialize starting positions.
     r1 = 0.0
@@ -33,14 +33,14 @@ program ParticleSpring
     
     do i = 1, n
         ! Apply one diffusive step to both r1 and r2 simultaneously.
-        call Euler_Maruyama(tau, 1, a, visc, k, l0, r1, r2)        ! Just one tau step each iterate.
+        call Euler_Maruyama(tau * 0.01_wp, 1, a, visc, k, l0, r1, r2)        ! Just one tau step each iterate.
         pos1(:, i + 1) = r1
         pos2(:, i + 1) = r2
         pos_cm(:, i + 1) = 0.5 * (pos1(:,i+1) + pos2(:, i + 1))
 
     end do
 
-    call writeToFile(pos_cm, n)
+    call writeToFile(pos2, n)
 
     deallocate(pos1)
     deallocate(pos2)
@@ -74,8 +74,9 @@ program ParticleSpring
 
                 temp = r1 - r2
 
-                r1 = r1 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp1 ! Apply one Euler-Maruyama Step   
-                r2 = r2 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp2
+                r1 = r1 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*KB*mu*T*dt)*disp1 ! Apply one Euler-Maruyama Step   
+                r2 = r2 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*KB*mu*T*dt)*disp2
+
 
             end do   
 
@@ -94,21 +95,7 @@ program ParticleSpring
             end do
 
             close(12)
-            
-
-          !  open(unit=2, file='data1.txt', ACTION="write", STATUS="replace")
-           ! do i=1,3
-           !      write(2, '(1000F14.7)')( real(pos(i,j)) ,j=1,n+1)
-           ! end do
-        
-            !close(2)
-        
 
         end subroutine
-        
-        
     
-
-
-
 end program

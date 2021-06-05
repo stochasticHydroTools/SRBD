@@ -54,7 +54,7 @@ FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 V
 
 OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
 
-all: DimerTest.exe # COM_OneParticle.exe
+all:	COM_TwoParticles.exe COM_OneParticle.exe COM_TwoParticlesSpring.exe
 
 clean:
 	rm -rf *.o *.mod COM_OneParticle.exe DimerTest.exe
@@ -96,3 +96,10 @@ DimerTest.exe: DimerTest.f90 $(OBJECTS)
 
 COM_OneParticle.exe: COM_OneParticle.f90 $(OBJECTS)
 	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
+
+COM_TwoParticles.exe: COM_TwoParticles.f90 $(OBJECTS)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES)
+
+COM_TwoParticlesSpring.exe: COM_TwoParticlesSpring.f90 $(OBJECTS)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
+ 

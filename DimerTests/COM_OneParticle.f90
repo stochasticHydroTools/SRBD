@@ -11,7 +11,7 @@ program OneParticle
     real(wp), allocatable   :: pos(:,:)
     integer                 :: n , i
 
-    n = 100 ! Number of data entries (not including the starting point)
+    n = 10000 ! Number of data entries (not including the starting point) -- will be large
     tau = 0.001_wp      ! Should be very small. 
 
     allocate(pos(3,n + 1))
@@ -48,15 +48,22 @@ program OneParticle
         subroutine writeToFile(pos,n)
             integer, intent(in) :: n
             real(wp), dimension(3,n+1), intent(in) :: pos
-            integer i, j
+            integer j
+
+            open(12, file = 'data1.txt')
+            do j = 1, n + 1
+                write(12, *) pos(1,j), pos(2,j), pos(3,j)
+            end do
+
+            close(12)
             
 
-            open(unit=2, file='data1.txt', ACTION="write", STATUS="replace")
-            do i=1,3
-                 write(2, '(1000F14.7)')( real(pos(i,j)) ,j=1,n+1)
-            end do
+          !  open(unit=2, file='data1.txt', ACTION="write", STATUS="replace")
+           ! do i=1,3
+           !      write(2, '(1000F14.7)')( real(pos(i,j)) ,j=1,n+1)
+           ! end do
         
-            close(2)
+            !close(2)
         
 
         end subroutine

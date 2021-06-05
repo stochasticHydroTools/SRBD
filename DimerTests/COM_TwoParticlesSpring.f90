@@ -3,6 +3,8 @@ program ParticleSpring
     use BoxLibRNGs
     implicit none 
 
+    ! Look at time scales LARGER than tau. 
+
     integer, parameter                  :: wp = r_sp
     real(wp), parameter                 :: k = 1.0_wp, l0 = 1.0_wp, a = 1.0_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 1.0_wp
     real(wp), dimension(3)              :: r1, r2, rcm
@@ -80,22 +82,30 @@ program ParticleSpring
         end subroutine      
 
 
-          ! Write to File
+        ! Write to File
         subroutine writeToFile(pos,n)
             integer, intent(in) :: n
             real(wp), dimension(3,n+1), intent(in) :: pos
-            integer i, j
+            integer j
+
+            open(12, file = 'data3.txt')
+            do j = 1, n + 1
+                write(12, *) pos(1,j), pos(2,j), pos(3,j)
+            end do
+
+            close(12)
             
 
-            open(unit=2, file='data3.txt', ACTION="write", STATUS="replace")
-            do i=1,3
-                write(2, '(1000F14.7)')( real(pos(i,j)) ,j=1,n+1)
-            end do
+          !  open(unit=2, file='data1.txt', ACTION="write", STATUS="replace")
+           ! do i=1,3
+           !      write(2, '(1000F14.7)')( real(pos(i,j)) ,j=1,n+1)
+           ! end do
         
-            close(2)
+            !close(2)
         
 
         end subroutine
+        
         
     
 

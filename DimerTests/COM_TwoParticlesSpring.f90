@@ -14,7 +14,7 @@ program ParticleSpring
 
     tau = (6*pi*a*visc) / (k)
 
-    n = 10000
+    n = 100000
 
     ! Initialize starting positions.
     r1 = 0.0
@@ -33,14 +33,14 @@ program ParticleSpring
     
     do i = 1, n
         ! Apply one diffusive step to both r1 and r2 simultaneously.
-        call Euler_Maruyama(tau * 0.01_wp, 1, a, visc, k, l0, r1, r2)        ! Just one tau step each iterate.
+        call Euler_Maruyama(tau * 0.01_wp, 100, a, visc, k, l0, r1, r2)        ! Just one tau step each iterate.
         pos1(:, i + 1) = r1
         pos2(:, i + 1) = r2
         pos_cm(:, i + 1) = 0.5 * (pos1(:,i+1) + pos2(:, i + 1))
 
     end do
 
-    call writeToFile(pos2, n)
+    call writeToFile(pos_cm, n)
 
     deallocate(pos1)
     deallocate(pos2)
@@ -65,17 +65,17 @@ program ParticleSpring
 
             ! Initialization of constants
             mu = ( 1.0 / (6*pi*visc*a) ) 
-            l12 = NORM2(r1-r2)
 
             ! Brownian Motion with Deterministic Drift Realization
             do i = 1, nsteps
                 call NormalRNGVec(numbers=disp1, n_numbers= 3) ! Mean zero and variance one
                 call NormalRNGVec(numbers=disp2, n_numbers= 3) ! Mean zero and variance one
+                l12 = NORM2(r1-r2)
 
                 temp = r1 - r2
 
-                r1 = r1 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*KB*mu*T*dt)*disp1 ! Apply one Euler-Maruyama Step   
-                r2 = r2 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*KB*mu*T*dt)*disp2
+                r1 = r1 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*9*dt)*disp1 ! Apply one Euler-Maruyama Step   
+                r2 = r2 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*4*dt)*disp2
 
 
             end do   

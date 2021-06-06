@@ -6,19 +6,20 @@ program relDiff
     ! Look at time scales LARGER than tau. 
 
     integer, parameter                  :: wp = r_sp
-    real(wp), parameter                 :: k = 10.0_wp, l0 = 1.0_wp, a = 1.0E-6_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 1.0E-4_wp
+    real(wp), parameter                 :: k = 0.029_wp, l0 = 1.0E-10_wp, a = 5.29E-11_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 8.9E-4_wp  ! Using Bohr radius as estimates
     real(wp), dimension(3)              :: r1, r2
     integer n, i
     real(wp), allocatable               :: pos1(:,:), pos2(:,:), pos_rel(:)
     real(wp)                            :: tau, r_rel
+    
 
     tau = (6*pi*a*visc) / (k)
 
-    n = 10000
+    n = 100000
 
     ! Initialize starting positions.
-    r1 = 0.0
-    r2 = 1.0
+    r1 = 0.0_wp
+    r2 = 1.20*1.0E-10_wp
     r_rel = norm2(r1-r2)
 
     ! Allocate Memory for all vectors
@@ -60,23 +61,36 @@ program relDiff
             real(wp), parameter :: KB = 1.38065E-23_wp, T = 300.0_wp, pi = 4.0_wp*ATAN(1.0_wp)
             real(wp) mu, l12
 
+
             ! Local Variables
             integer :: i
 
             ! Initialization of constants
             mu = ( 1.0 / (6*pi*visc*a) ) 
-            l12 = NORM2(r1-r2)
 
             ! Brownian Motion with Deterministic Drift Realization
             do i = 1, nsteps
                 call NormalRNGVec(numbers=disp1, n_numbers= 3) ! Mean zero and variance one
                 call NormalRNGVec(numbers=disp2, n_numbers= 3) ! Mean zero and variance one
 
+                l12 = norm2(r1-r2)
+
+                if (norm2(sqrt(2*KB*T*mu*dt)*disp1) > 1) then 
+                    print *, "Large"
+                endif
+
+                if (norm2(sqrt(2*KB*T*mu*dt)*disp2) > 1.0_wp) then 
+                    print *, "Large2"
+                endif
+
                 temp = r1 - r2
 
-                r1 = r1 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*0.1*dt)*disp1 ! Apply one Euler-Maruyama Step   
-                r2 = r2 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*0.1*dt)*disp2
+                !if (norm2(temp/l12) /= 1.0_wp) then 
+                !    print *, norm2(temp/l12)
+                !endif
 
+                r1 = r1 + (mu * k * (l12 - l0) * (-temp) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp1 ! Apply one Euler-Maruyama Step   
+                r2 = r2 + (mu * k * (l12 - l0) * (temp) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp2
 
             end do   
 
@@ -97,5 +111,6 @@ program relDiff
             close(12)
 
         end subroutine
+
     
 end program

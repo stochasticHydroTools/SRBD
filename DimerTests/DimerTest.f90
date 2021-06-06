@@ -1,7 +1,7 @@
 program EM 
     use Precision
     use BoxLibRNGs ! Random number generation
-    implicit none
+    implicit none   ! Must include
 
     integer, parameter :: wp = r_sp ! Double precision
     
@@ -31,7 +31,6 @@ program EM
 
             ! Initialization of constants
             mu = ( 1.0 / (6*pi*visc*a) ) 
-            l12 = NORM2(r1-r2)
                     
             ! Brownian motion (only) realization (code could be modified to be in R3)
             ! do i = 1, nsteps
@@ -43,6 +42,7 @@ program EM
 
             ! Brownian Motion with Deterministic Drift Realization
             do i = 1, nsteps
+		l12 = NORM2(r1-r2)
                 call NormalRNGVec(numbers=disp, n_numbers= 3) ! Mean zero and variance one
                 r1 = r1 + (mu * k * (l12 - l0) * (r1-r2) / l12) * dt + sqrt(2*KB*T*mu*dt)*disp ! Apply one Euler-Maruyama Step        
             end do   

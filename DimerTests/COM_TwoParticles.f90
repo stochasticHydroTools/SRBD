@@ -6,14 +6,14 @@ program TwoParticles
 
     integer, parameter      :: wp = r_sp
 
-    real(wp)                :: tau = 1.0_wp/(0.1_wp)        ! Arbitraily chosen tau (time scale)
+    real(wp)                :: tau = 0.001_wp        ! Arbitraily chosen tau (time scale)
     real(wp), dimension(3)  :: r1 = 0.0_wp, r2 = 1.0_wp     ! Initialize where r1 and r2 start.
     real(wp), allocatable   :: pos1(:,:), pos2(:,:), pos_cm(:,:)
     integer                 :: n , i
     real(wp), dimension(3)  :: r_cm 
 
 
-    n = 100 ! Number of data entries (not including the starting point)
+    n = 100000 ! Number of data entries (not including the starting point)
     allocate(pos1(3,n + 1))
     allocate(pos2(3,n + 1))
     allocate(pos_cm(3,n + 1))

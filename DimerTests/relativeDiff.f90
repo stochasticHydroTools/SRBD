@@ -6,7 +6,7 @@ program relDiff
     ! Look at time scales LARGER than tau. 
 
     integer, parameter                  :: wp = r_sp
-    real(wp), parameter                 :: k = 0.029_wp, l0 = 1.0E-10_wp, a = 5.29E-11_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 8.9E-4_wp  ! Using Bohr radius as estimates
+    real(wp), parameter                 :: k = 0.029_wp, l0 = 1.0E-8, a = 5.29E-11_wp, pi = 4.0_wp*ATAN(1.0_wp), visc = 8.9E-4_wp  ! Using Bohr radius as estimates
     real(wp), dimension(3)              :: r1, r2
     integer n, i
     real(wp), allocatable               :: pos1(:,:), pos2(:,:), pos_rel(:)
@@ -19,7 +19,7 @@ program relDiff
 
     ! Initialize starting positions.
     r1 = 0.0_wp
-    r2 = 1.20*1.0E-10_wp
+    r2 = 1.20*l0
     r_rel = norm2(r1-r2)
 
     ! Allocate Memory for all vectors

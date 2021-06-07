@@ -3,6 +3,11 @@ program relDiff
     use BoxLibRNGs
     implicit none 
 
+    ! Donev: This code is basically a repetition of the one for COM. This is a NO-NO in programming -- it asks for errors
+    ! Instead, one and only one code can write both center of mass and relative distance etc.
+    ! Also, you only run the code once but generate all data instead of running separately
+    ! Really, there should be one and only code here for the dimer diffusion
+    ! A single particle diffusing is a separate code and that's about it -- two codes total
     ! Look at times LARGER than tau (to see BM). Can sample each tau. 
 
     integer, parameter                  :: wp = r_sp, dim = 3, nsteps = 100

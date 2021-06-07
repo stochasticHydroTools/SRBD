@@ -54,7 +54,7 @@ FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 V
 
 OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
 
-all:	COM_TwoParticles.exe COM_OneParticle.exe COM_TwoParticlesSpring.exe relativeDiff.exe
+all:	 timeStep.exe # DimerTest.exe timeStep.exe relativeDiff1D.exe COM_TwoParticles.exe COM_TwoParticlesSpring.exe relativeDiff.exe 
 
 clean:
 	rm -rf *.o *.mod COM_OneParticle.exe DimerTest.exe
@@ -106,3 +106,8 @@ COM_TwoParticlesSpring.exe: COM_TwoParticlesSpring.f90 $(OBJECTS)
 relativeDiff.exe: relativeDiff.f90 $(OBJECTS)
 	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
 
+relativeDiff1D.exe: relativeDiff1D.f90 $(OBJECTS)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
+
+timeStep.exe: timeStep.f90 $(OBJECTS)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 

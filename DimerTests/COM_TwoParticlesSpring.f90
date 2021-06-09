@@ -1,6 +1,7 @@
 program ParticleSpring
     use Precision
     use BoxLibRNGs
+    use, intrinsic :: iso_fortran_env, only: stderr => error_unit       ! This is so I can track errors.
     implicit none 
 
     ! Look at time scales LARGER than tau. 
@@ -16,26 +17,28 @@ program ParticleSpring
     ! The compiler will typically replace every occurence of these with the actual hardware bit pattern to optimize the most
     real(wp), parameter                                 :: pi = 4.0_wp*ATAN(1.0_wp), KB = 1.38065E-23_wp, T = 300.0_wp
     real(wp), dimension(dim)                            :: r1, r2
-    integer                                             :: n, i, nsteps, rc, iounit ! Donev: Even though you can sometimes omit :: please always use it for clarity of code
+    integer                                             :: n, i, nsteps ! Donev: Even though you can sometimes omit :: please always use it for clarity of code
     real(wp), dimension(:,:), allocatable               :: pos_cm
     real(wp), dimension(:), allocatable                 :: pos_diff
     real(wp)                                            :: tau, dtau, k, l0, a, visc, dimensionlessTSSize, mu, D
-    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt'
+    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', nml_file = "diffusiveSpringParam.nml"
 
-    ! Not sure why the below does not work, so I will manually initialize for now. When the below code is run, 
+    ! Not sure why the below does not work, so I will manually initialize for now. When the below code is run, I get the wrong answers. When I hardcode, I get the correct answers.
     !namelist / diffusiveSpringParam / n, k, l0, a, visc, dimensionlessTSSize, nsteps
     !inquire (file="diffusiveSpringParam.nml", iostat=rc)
     !open(newunit = iounit, file="diffusiveSpringParam.nml", iostat = rc, action = "read")
     !read(unit = iounit, nml = diffusiveSpringParam, iostat = rc)
     !close(iounit)
 
-    n = 100000
-    k = 0.029_wp
-    l0 = 1.0E-8_wp
-    a = 5.29E-11_wp
-    visc = 8.9E-4_wp
-    dimensionlessTSSize = 0.001_wp
-    nsteps = 1000
+    call read_namelist(nml_file, n, k, l0, a, visc, dimensionlessTSSize, nsteps)
+
+    !n = 100000
+    !k = 0.029_wp
+    !l0 = 1.0E-8_wp
+    !a = 5.29E-11_wp
+    !visc = 8.9E-4_wp
+    !dimensionlessTSSize = 0.001_wp
+    !nsteps = 1000
 
     ! Donev: The value 0.01 (dimensionless time step size) should be read from input
     mu = 1.0 / (6*pi*a*visc)
@@ -58,7 +61,7 @@ program ParticleSpring
     r1 = 0.0_wp
     ! Suggest initializing at a distance of l0 to start
     ! An interesting exercise is to figure out how to generate a random vector of length l0...we can discuss
-    r2 = 1.20*l0       ! Initial distance is l0, 
+    r2 = sqrt(l0**2 / dim)       ! Initial distance is l0, 
 
 
     ! Allocate Memory for all arrays 
@@ -141,16 +144,47 @@ program ParticleSpring
             character(len = *)                              :: filename 
             integer                                         :: j, myunit
 
-            open(newunit = myunit, file = filename) ! Donev: Hard-wiring unit numbers like 12 is generally a bad idea
-            ! In a recent revision of Fortran (supported by gfortran) we added an intrinsic routine called new_unit or something like that
-            ! google it and if not successful ask me
+            open(newunit = myunit, file = filename) 
             do j = 0, n
-                write(myunit, *) pos(:,j) ! Donev: You can just do pos(:,j) here to accomplish the same
+                write(myunit, *) pos(:,j) 
             end do
 
             close(myunit)
         
 
         end subroutine
+
+        ! Subroutine to read in the data from a namelist file. 
+        subroutine read_namelist(file_path, n, k, l0, a, visc, dimensionlessTSSize, nsteps)
+            !! Reads Namelist from given file.
+            character(len=*),  intent(in)  :: file_path
+            integer,           intent(out) :: n, nsteps
+            real,              intent(out) :: k, l0, a, visc, dimensionlessTSSize
+            integer                        :: unit, check
+    
+            ! Namelist definition.
+            namelist /diffusiveSpringParam/ n, k, l0, a, visc, dimensionlessTSSize, nsteps
+    
+            ! Check whether file exists.
+            inquire (file=file_path, iostat=check)
+    
+            ! Here we have some checks, this just makes sure that the file is around. 
+            if (check /= 0) then
+                write (stderr, '(3a)') 'Error: The file "', trim(file_path), '" does not exist.'
+                return
+            end if
+    
+            ! Open and read Namelist file.
+            open (action='read', file=file_path, iostat=check, newunit=unit)
+            read (nml=diffusiveSpringParam, iostat=check, unit=unit)
+    
+            ! This is to keep people aware of cases like : End of File runtime errors.
+            if (check /= 0) then
+                write (stderr, '(a)') 'Error: invalid Namelist format.'
+            end if
+    
+            close (unit)
+        end subroutine read_namelist
+    
     
 end program

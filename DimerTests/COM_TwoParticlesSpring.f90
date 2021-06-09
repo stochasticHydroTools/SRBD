@@ -16,22 +16,15 @@ program ParticleSpring
     ! Parameter means "compile-time constant", that is, a value that is known at compile time and never changed
     ! The compiler will typically replace every occurence of these with the actual hardware bit pattern to optimize the most
     real(wp), parameter                                 :: pi = 4.0_wp*ATAN(1.0_wp), KB = 1.38065E-23_wp, T = 300.0_wp
-    real(wp), dimension(dim)                            :: r1, r2
-    integer                                             :: n, i, nsteps ! Donev: Even though you can sometimes omit :: please always use it for clarity of code
-    real(wp), dimension(:,:), allocatable               :: pos_cm
-    real(wp), dimension(:), allocatable                 :: pos_diff
-    real(wp)                                            :: tau, dtau, k, l0, a, visc, dimensionlessTSSize, mu, D
+    real(wp), dimension(dim)                            :: r1, r2, rcm
+    integer                                             :: n, i, nsteps, myunit1, myunit2 ! Donev: Even though you can sometimes omit :: please always use it for clarity of code
+    real(wp)                                            :: tau, dtau, k, l0, a, visc, dimensionlessTSSize, mu, D, r_rel
     character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', nml_file = "diffusiveSpringParam.nml"
 
-    ! Not sure why the below does not work, so I will manually initialize for now. When the below code is run, I get the wrong answers. When I hardcode, I get the correct answers.
-    !namelist / diffusiveSpringParam / n, k, l0, a, visc, dimensionlessTSSize, nsteps
-    !inquire (file="diffusiveSpringParam.nml", iostat=rc)
-    !open(newunit = iounit, file="diffusiveSpringParam.nml", iostat = rc, action = "read")
-    !read(unit = iounit, nml = diffusiveSpringParam, iostat = rc)
-    !close(iounit)
 
     call read_namelist(nml_file, n, k, l0, a, visc, dimensionlessTSSize, nsteps)
 
+    !Below are Parameters which work, to read from namelist.
     !n = 100000
     !k = 0.029_wp
     !l0 = 1.0E-8_wp
@@ -63,14 +56,18 @@ program ParticleSpring
     ! An interesting exercise is to figure out how to generate a random vector of length l0...we can discuss
     r2 = sqrt(l0**2 / dim)       ! Initial distance is l0, 
 
-
-    ! Allocate Memory for all arrays 
-    allocate(pos_cm(dim,0:n))
-    allocate(pos_diff(0:n))
-        
+    open(newunit = myunit1, file = filenameDiff)
+    open(newunit = myunit2, file = filenameRel) 
+         
     do i = 0, n
-        pos_cm(:,i) = 0.5 * (r1 + r2)       ! No longer collecting pos1, pos2.
-        pos_diff(i) = norm2(r1 - r2)        ! Can be easily modified to collect the norm as well (if desired)
+        rcm = 0.5 * (r1 + r2)
+        r_rel = norm2(r1-r2)   !r_rel must be a array of dimension 1 because writeToFile only accepts arrays, will crash if sent a scalar.
+
+        !pos_cm(:,i) = rcm       ! No longer collecting pos1, pos2.
+        !pos_diff(i) = r_rel       ! Can be easily modified to collect the displacement as well (if desired)
+
+        write(myunit1,*) rcm(:)
+        write(myunit2,*) r_rel
 
         ! Donev: EM does not need to know about viscosity and a
         ! Instead, it only cares about diffusion coefficient
@@ -79,23 +76,21 @@ program ParticleSpring
        
     end do
 
-    pos_cm(:,n) = 0.5 * (r1 + r2)       
-    pos_diff(n) = norm2(r1 - r2) 
+    rcm = 0.5 * (r1 + r2)
+    r_rel = norm2(r1-r2)
+    write(myunit1,*) rcm(:)
+    write(myunit2,*) r_rel
 
-    ! Donev: Why store pos1 and pos2 if they are never used?
-    ! Sometimes we do runs that go on for billions of steps and don't want to store huge arrays
-    ! So one can instead not store r1 and r2 and instead store r_cm but also r_diff=r1-r2 which are sufficient to reconstruct r1 and r2
-    ! Often we don't even store these arrays and instead do write(file,fmt) r_com INSIDE the for loop so we only write to disk but not memory
-    ! Since in your case you are analyzing the data after the fact, this is the right thing to do -- you don't need to store any arrays to memory
-    ! the process is Markov which means the next point only depends on the current one so we don't need to store a history
-    call writeToFile(pos_cm, n, dim, filenameDiff)
+    close(myunit1)
+    close(myunit2)
 
+
+    !pos_cm(:,n) = 0.5 * (r1 + r2)       
+    !pos_diff(n) = norm2(r1 - r2) 
     ! Write the relative differences to a file. 
-    call writeToFile(pos_diff,n,1,filenameRel)
+    !call writeToFile(pos_diff,n,1,filenameRel)
 
 
-    deallocate(pos_cm)
-    deallocate(pos_diff)
         
 
 
@@ -134,25 +129,6 @@ program ParticleSpring
 
         end subroutine      
                 
-
-
-        ! Write to File
-        ! Donev: See comment above about often writing files INSIDE the DO loop
-        subroutine writeToFile(pos,n,dim, filename)
-            integer, intent(in)                             :: n, dim
-            real(wp), dimension(dim,0:n), intent(in)        :: pos
-            character(len = *)                              :: filename 
-            integer                                         :: j, myunit
-
-            open(newunit = myunit, file = filename) 
-            do j = 0, n
-                write(myunit, *) pos(:,j) 
-            end do
-
-            close(myunit)
-        
-
-        end subroutine
 
         ! Subroutine to read in the data from a namelist file. 
         subroutine read_namelist(file_path, n, k, l0, a, visc, dimensionlessTSSize, nsteps)

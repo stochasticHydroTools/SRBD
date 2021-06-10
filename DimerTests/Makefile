@@ -54,7 +54,7 @@ FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 V
 
 OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
 
-all:	 timeStep.exe # DimerTest.exe timeStep.exe relativeDiff1D.exe COM_TwoParticles.exe COM_TwoParticlesSpring.exe relativeDiff.exe 
+all:	COM_TwoParticlesSpring.exe # DimerTest.exe timeStep.exe relativeDiff1D.exe COM_TwoParticles.exe COM_TwoParticlesSpring.exe relativeDiff.exe 
 
 clean:
 	rm -rf *.o *.mod COM_OneParticle.exe DimerTest.exe

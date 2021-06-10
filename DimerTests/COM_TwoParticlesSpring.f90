@@ -15,6 +15,10 @@ program ParticleSpring
     ! Donev: The values below except for PI should NOT be parameters and should be read from input file
     ! Parameter means "compile-time constant", that is, a value that is known at compile time and never changed
     ! The compiler will typically replace every occurence of these with the actual hardware bit pattern to optimize the most
+    ! DONEV: For testing, one can set mu=1, D=1, instead of using real values
+    ! Alternatively, and even better,
+    ! all output should be normalized, e.g., length should be normalized by the standard deviation predicted by Gibbs-Boltzmann distribution
+    ! time by tau, etc.
     real(wp), parameter                                 :: pi = 4.0_wp*ATAN(1.0_wp), KB = 1.38065E-23_wp, T = 300.0_wp
     real(wp), dimension(dim)                            :: r1, r2, rcm
     integer                                             :: n, i, nsteps, myunit1, myunit2 ! Donev: Even though you can sometimes omit :: please always use it for clarity of code
@@ -25,6 +29,7 @@ program ParticleSpring
     call read_namelist(nml_file, n, k, l0, a, visc, dimensionlessTSSize, nsteps)
 
     !Below are Parameters which work, to read from namelist.
+    ! DONEV: Add integer seed to this and uncomment seeding below
     !n = 100000
     !k = 0.029_wp
     !l0 = 1.0E-8_wp
@@ -61,12 +66,14 @@ program ParticleSpring
          
     do i = 0, n
         rcm = 0.5 * (r1 + r2)
+        ! DONEV: Suggest writing to file r1-r2 (a vector) and then Matlab script can compute norms instead
+        ! This is more flexible and does not loose information (e.g., the sign of r1-r2 in 1D)
         r_rel = norm2(r1-r2)   !r_rel must be a array of dimension 1 because writeToFile only accepts arrays, will crash if sent a scalar.
 
         !pos_cm(:,i) = rcm       ! No longer collecting pos1, pos2.
         !pos_diff(i) = r_rel       ! Can be easily modified to collect the displacement as well (if desired)
 
-        write(myunit1,*) rcm(:)
+        write(myunit1,*) rcm(:) ! DONEV: The (:) is unnecessary 
         write(myunit2,*) r_rel
 
         ! Donev: EM does not need to know about viscosity and a
@@ -76,6 +83,8 @@ program ParticleSpring
        
     end do
 
+    ! DONEV: It is OK to just skip this for the very last step to avoid duplication
+    ! One can also use a do while loop instead of a do loop with a "break"
     rcm = 0.5 * (r1 + r2)
     r_rel = norm2(r1-r2)
     write(myunit1,*) rcm(:)
@@ -98,6 +107,9 @@ program ParticleSpring
 
         ! r1 is the position of the bead which we are diffusing by one time step. 
         subroutine Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2, dim)
+            ! DONEV: You should not pass dim here as an argument, since this undoes the "parameter" statement above
+            ! Fixing dim=3 at compile time is better for execution speed since it means that the compiler knows the size is 3 and can optimize for that
+            ! So just remove dim as an argument and don't pass it in (it will be taken from the variable above)
             ! Donev: Replace KB, a, visc with mu as input (compute mu above in the main program)
             real(wp), intent(in)                        :: dt, mu, k, l0, D
             integer, intent(in)                         :: nsteps, dim            
@@ -133,6 +145,11 @@ program ParticleSpring
         ! Subroutine to read in the data from a namelist file. 
         subroutine read_namelist(file_path, n, k, l0, a, visc, dimensionlessTSSize, nsteps)
             !! Reads Namelist from given file.
+            ! DONEV: It is not necessary to pass all these parameters. Variables in the parent scoping unit,
+            ! which is the program here, are visible here inside the routine. In fact,
+            ! you can treat these inlined/contained routines simply as some text that you can cut and paste above where the "call" is
+            ! For routines where it is important to clarify what is input/output etc like the ones above it is a good idea to use arguments
+            ! but once you have to pass long lists of arguments it is easier to just use scoping
             character(len=*),  intent(in)  :: file_path
             integer,           intent(out) :: n, nsteps
             real,              intent(out) :: k, l0, a, visc, dimensionlessTSSize

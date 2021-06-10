@@ -1,0 +1,10 @@
+&diffusiveSpringParam
+n = 100000,
+k = 0.029,
+l0 = 1.0E-8,
+a = 5.29E-11,
+visc = 8.9E-4,
+dimensionlessTSSize = 0.001,
+nsteps = 1000
+/
+&END

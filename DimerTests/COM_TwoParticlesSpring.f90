@@ -6,7 +6,7 @@ program ParticleSpring
 
     ! Look at time scales LARGER than tau. 
 
-    integer, parameter                                  :: wp = r_sp, dim = 3
+    integer, parameter                                  :: wp = r_sp, dim = 1
     ! DONEV: For testing, one can set mu=1, D=1, instead of using real values
     ! Alternatively, and even better,
     ! all output should be normalized, e.g., length should be normalized by the standard deviation predicted by Gibbs-Boltzmann distribution
@@ -32,7 +32,7 @@ program ParticleSpring
 
     mu = 1.0_wp !/ (6*pi*a*visc)
     tau = 1.0 / (mu * k)
-    D = 1.0_wp!kb*T*mu ! Uncomment to left, but to calculate diffusive coefficients it is easier to have a nice value
+    D = 1.0_wp ! kb*T*mu ! Uncomment to left, but to calculate diffusive coefficients it is easier to have a nice value
     dt = tau * dimensionlessTSSize   ! Arbitrarily chosen (this is delta t, which is a fraction of tau)
 
 

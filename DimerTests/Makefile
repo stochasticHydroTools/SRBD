@@ -111,3 +111,7 @@ relativeDiff1D.exe: relativeDiff1D.f90 $(OBJECTS)
 
 timeStep.exe: timeStep.f90 $(OBJECTS)
 	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
+
+COM_SpringDLess.exe: COM_SpringDLess.f90 $(OBJECTS)
+	$(FC) -o $@ $< $(OBJECTS) $(LIBRARIES) 
+

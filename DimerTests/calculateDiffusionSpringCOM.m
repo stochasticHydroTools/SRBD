@@ -54,7 +54,18 @@ x = linspace(-20,20,10001);
 y = (1/(sqrt(2*pi*1/k)))*exp((-k*(x-l0).^2)./ (2*1));  %Will be the boltzmann distribution ( D = 1)
 plot(x,y,'Linewidth',2)
 
+% To find confidence Intervals....
+N = length(B);
+s = std(B);     %Sample SD
+SE = s / sqrt(N); %Standard Error
+ts = tinv([0.025 0.975], N-1); %Returns t-values for this specific case with N-1 DOF. (95% CI)
+CI = mean(B) + ts*SE;
 
-    
+% Graph the confidence bands
+xline(CI(1), 'Linewidth',1.25)
+xline(CI(2),'Linewidth',1.25)
+
+
+
  
 

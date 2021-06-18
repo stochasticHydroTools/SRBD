@@ -2,7 +2,7 @@ SRC_DOI=./
 # You must also obtain the HydroGrid library from
 # https://github.com/stochasticHydroTools/HydroGrid
 # and point to the directory here:
-SRC_HYDROGRID=/../HydroGrid
+SRC_HYDROGRID=../HydroGrid
 
 SRC_HYDROLIB=$(SRC_HYDROGRID)/src
 

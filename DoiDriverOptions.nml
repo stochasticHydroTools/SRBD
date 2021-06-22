@@ -22,9 +22,6 @@
 
    ! f=0.5 as phi->0 (diffusion-limited)
    speciesDiffusivity(1:3) = 0.3254919019e-1 0.3254919019e-1 0.3254919019e-1
-
-   ! For phi=1:
-   !---------------------
    
    ! Asymptotic for D->infinity
    reactionRate(1:2) = 1.0  0.2387324146
@@ -32,22 +29,11 @@
    
    !---------------------
 
-   sampleCellLength(1:3) = 16.0 16.0 16.0
+   sampleCellLength(1:3) = 16.0 16.0 16.0 ! This is the system size since there is only one sampling cell
    nBlockingCollision(1:3) = 16 16 16 ! Number of DOI cells per block of sampling cells
+   !nBlockingCollision(1:3) = 8 8 8  ! Optimal number of collision cells needs to be determined empirically
    !nBlockingCollision(1:3) = 1 1 1 ! For RDME one well-mixed cell
-   
-   !sampleCellLength(1:3) = 32.0 32.0 32.0
-   !nBlockingCollision(1:3) = 64 64 64 ! For RDME testing
-   !nBlockingCollision(1:3) = 32 32 32 ! Number of DOI cells per block of sampling cells
-   !nBlockingCollision(1:3) = 16 16 16  ! Optimal for phi=1/4
-   !nBlockingCollision(1:3) = 8 8 8  ! Optimal for phi=1/4
-   !nBlockingCollision(1:3) = 1 1 1 ! For RDME one well-mixed cell
-
-   !sampleCellLength(1:3) = 64.0 64.0 64.0
-   !nBlockingCollision(1:3) = 64 64 64 ! Optimal for phi=1/2 and above
-   !nBlockingCollision(1:3) = 32 32 32 ! Optimal for phi=1/4
-   !nBlockingCollision(1:3) = 16 16 16
-   
+      
    addDensityFluctuations = F ! Add density fluctuations on top of hydro values?
    problem_type=0 ! uniform initial condition
    

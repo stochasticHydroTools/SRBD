@@ -1,83 +1,74 @@
-! This input file implements the A+B<->C reversible association model
-
 &DoiDriverOptions
-   basename = "ABC" ! Base filename for output files
-   ! Total number of time steps:
-   nSteps = 10
-   ! Number of steps between two consecutive sets of data in HydroGridAnalysis.
-   nSampleStep = 1 ! Set to 0 if no data are to be saved.
-   ! Number of steps between two consecutive sets of data printed to file and screen.
-   nOutputStep = 1 !  Set to 0 if no data are to be printed.
-   ! Number of equilibration steps to be skipped without saving data to files.
-   nEquilibrationStep = 1
-   ! Number of steps between two consecutive writings of HydroGrid statistics. 
-   nStatsStep = 1 ! Set to 0 if only written at the end.
-   seed = 0 ! Set to zero for unpredictable seed based on clock
+   basename = "ABC"
+   nSteps = 10 ! Total number of steps
+   nOutputStep = 1 ! Write number of particles
+   nStatsStep = 5 ! Print some statistics to screen
+   nEquilibrationStep = 0
+   nSampleStep = 0 ! Do not use HydroGrid here
+   seed = 0
 /
 
 
 &DoiBoxOptions
-   problem_type = 2 ! Select initialization: 0=uniform, 1=half A's, half B's (interface), 2=stripe
+   reactionScheme = 1  ! 0 for S-BD-RME, 1 for SRBD
 
-   !-------------------------------
-   ! Physical parameters:
-   ! Enter reactionRate(nReactions)
-   reactionRate = 1
-   ! Enter stochiometric coefficients reactionNetwork(nSpecies,2,nReactions)
-   reactionNetwork = 2, 0
-   reactionScheme = 1 ! 0 for RDME, 1 for IRDME
-   ! Enter speciesDiffusivity(nSpecies)
-   speciesDiffusivity = 1
-   ! Enter speciesDiameter(nSpecies)
-   speciesDiameter = 0.3
-   ! Enter initial number densities numberDensity(nSpecies)
-   numberDensity = 10
+   ! Enter reactionNetwork(nSpecies,2,nReactions)
+   reactionNetwork(:,:,1) = 1 1 0, 0 0 1 ! A+B->C
+   reactionNetwork(:,:,2) = 0 0 1, 1 1 0 ! C->A+B
    
-   !-------------------------------
-   ! Domain parameters:
-   ! Domain size is (nBlockingSample * nHydroCells * sampleCellLength)
-   ! It is divided into (nBlockingCollision * nHydroCells) DOI cells used to process reactions
-   ! This means that the grid spacing used to process collisions is:
+   !inputTimestep=0.05 ! dt for large D 
+   inputTimestep=0.25 ! dt for small D 
+   speciesDiameter(1:3) = 1.0 1.0 1.0  
+
+   ! f=0.5 as phi->0 (diffusion-limited)
+   speciesDiffusivity(1:3) = 0.3254919019e-1 0.3254919019e-1 0.3254919019e-1
+
+   ! For phi=1:
+   !---------------------
+   
+   ! Asymptotic for D->infinity
+   reactionRate(1:2) = 1.0  0.2387324146
+   numberDensity(1:3) = 0.2387324146 0.2387324146 0.2387324146  ! Supposed to be in equilibrium
+   
+   !---------------------
+
+   sampleCellLength(1:3) = 16.0 16.0 16.0
+   nBlockingCollision(1:3) = 16 16 16 ! Number of DOI cells per block of sampling cells
+   !nBlockingCollision(1:3) = 1 1 1 ! For RDME one well-mixed cell
+   
+   !sampleCellLength(1:3) = 32.0 32.0 32.0
+   !nBlockingCollision(1:3) = 64 64 64 ! For RDME testing
+   !nBlockingCollision(1:3) = 32 32 32 ! Number of DOI cells per block of sampling cells
+   !nBlockingCollision(1:3) = 16 16 16  ! Optimal for phi=1/4
+   !nBlockingCollision(1:3) = 8 8 8  ! Optimal for phi=1/4
+   !nBlockingCollision(1:3) = 1 1 1 ! For RDME one well-mixed cell
+
+   !sampleCellLength(1:3) = 64.0 64.0 64.0
+   !nBlockingCollision(1:3) = 64 64 64 ! Optimal for phi=1/2 and above
+   !nBlockingCollision(1:3) = 32 32 32 ! Optimal for phi=1/4
+   !nBlockingCollision(1:3) = 16 16 16
+   
+   addDensityFluctuations = F ! Add density fluctuations on top of hydro values?
+   problem_type=0 ! uniform initial condition
+   
    ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
-   sampleCellLength(1:3) = 1.0 1.0 1.0 ! size: nMaxDimensions=3
-   nHydroCells(1:3) = 3 3 3 ! size: nMaxDimensions=3
-   nBlockingCollision = 1 1 1 ! Number of DOI cells per block of sampling cells
-   nBlockingSample = 1 1 1 ! Smallest possible division (block) of sampling grid
-   
-   !-------------------------------   
-   ! Time stepping:
-   inputTimestep = 1.0 ! Time step size dt
-   strangSplitting = .true. ! Use Strang (T) or Lie (F) splitting
-   
-   ! Initial conditions:
-   !-------------------------------      
-   addDensityFluctuations = F ! For initial fillings of cells. If set to true=T the initial state will have fluctuations
-   usePoisson = T ! Initialize with Poisson (T) or Gaussian (F) fluctuations if addDensityFluctuations=T
-
-   ! Other parameters:
-   !-------------------------------      
-   fractionExtraParticles = 1 ! The code will allocate space for (1+fractionExtraParticles) times the initial number of particles
-   nMaxParticlesPerCell = 0 ! Set to zero to estimate numerically: Used to accelerate the building of some data structures
-   randomShift = .true. ! Should we randomly shift the reaction grid in S-BD-RME (T) or keep it fixed (F)
-   diffuseByHopping = 0 ! How do particles diffuse: 0=continuous walk, 1=discrete walk, 2=remain on lattice
+   nSampleCells(1:3) = 1 1 1
+   nBlockingSample(1:3) = 1 1 1 ! Smallest possible division (block) of sampling grid
+      
+   ! Misc:
+   usePoisson = T
+   fractionExtraParticles = 1.0
+   nMaxParticlesPerCell = 10 ! Set to zero to estimate numerically
+   strangSplitting = .true.
+   randomShift = .true.
+   diffuseByHopping = 0 ! 0=continuous walk, 1=discrete walk, 2=remain on lattice
 /
 
-   namelist / DoiBoxOptions / reactionRate, reactionNetwork, reactionScheme, numberDensity, &
-      speciesDiffusivity, speciesDiameter, sampleCellLength, nSampleCells, &
-      nBlockingSample, nBlockingCollision, fractionExtraParticles, &
-      usePoisson, wallBCs, addDensityFluctuations, reservoirThickness, &
-      inputTimestep, strangSplitting, randomShift, &
-      nMaxParticlesPerCell, randomShift, diffuseByHopping, problem_type
-
-
-
-! This is used by HydroGrid library, see its documentation
+! If HydroGrid is used then this will be read:
 &HydroAnalysisOptions
    storeConserved=F
    
    writeSnapshotVTK=T ! Save snapshots of the instantaneous fields
-
-   ! Means file: column 1=y, 2=rho, 3=v_x, 4=v_y, 5=T, 6=c
    writeMeansVTK = F ! Write the means to a VTK file
 
    ! Variances
@@ -103,7 +94,7 @@
    nSavedSnapshots=100
    
    outputFolder = "./"
-   filePrefix = "RDME" ! Prefix for all file names
+   filePrefix = "AB" ! Prefix for all file names
    axisToPrint = 2 ! 1=x, 2=y, 3=z axis
    periodic = T ! Is the system periodic along the y axes
 

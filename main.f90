@@ -83,7 +83,8 @@ program main
 
    do iStep = 0, nSteps ! Go one more step so as to write files at the end
                
-      if ((nOutputStep > 0) .and. (Mod(iStep, nOutputStep) == 0)) then ! Output some values to screen
+      if (nOutputStep > 0) then
+      if (Mod(iStep, nOutputStep) == 0) then ! Output some values to screen
       ! Donev TODO: Open a file with a proper file name and write to it instead of fort.21 here (see DSMC code for example)
       if(.true.) then ! Output minimal stuff to minimize size of files
          write(9,*) box%globalTime, box%nParticles(1)/domainVolume ! Only first species is enough for stuff like A+B<->C due to conservation laws
@@ -93,8 +94,10 @@ program main
          write(22,*) box%globalTime, box%reactionCount(1:totalReactions) ! Donev: also write total number of reactions up to this time in a file 
       end if       
       end if
+      end if
       
-      if ((nSampleStep > 0) .and. (Mod(iStep, nSampleStep) == 0)) then
+      if (nSampleStep > 0) then
+      if (Mod(iStep, nSampleStep) == 0) then
          call getState (box)
          ! Donev: The temperature can be used to save some other scalar field such as an order parameter / collective coordinate
          ! For the A+B->0 a good (conserved) order parameter is the difference A-B         
@@ -105,14 +108,17 @@ program main
                  box%numberDensity(:, :, :, 1)+box%numberDensity(:, :, :, 2)+2*box%numberDensity(:, :, :, 3), & ! For A+B->C write A+B+2*C
                  concentration=box%numberDensity(:, :, :, 1:nSpecies))
       end if
+      end if
       
-      if ((nStatsStep > 0) .and. (Mod(iStep, nStatsStep) == 0)) then ! Write results to files
+      if (nStatsStep > 0) then
+      if (Mod(iStep, nStatsStep) == 0) then ! Write results to files
          write(*,*) iStep, "t=", box%globalTime, " n_particles=", box%nParticles(0), &
             " fractions=", real(box%nParticles(1:nSpecies))/real(box%nParticles(0))
          write(*,*) "Number of reactions is:", box%reactionCount(0), "=", box%reactionCount(1:totalReactions)
          ! This includes statistics gathered from the last time we were here up until now
          if(nSampleStep > 0) call writeToFiles(grid, iStep) ! This will write files from HydroGrid analysis
                   
+      end if
       end if
 
       ! Move to the next point in time:     

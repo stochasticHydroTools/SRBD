@@ -7,11 +7,11 @@ module DoiBoxModule
    
    ! Change for different reaction schemes and recompile:
    !integer, parameter :: nSpecies = 3, nReactions = 7 ! BPM model
-   !integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME
+   integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->B, 0->A equilibrium (from Radek Erban)
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->0, A+A->0, rate test in IRDME
    !integer, parameter :: nSpecies = 3, nReactions = 4 ! 0->A, A->0, A+B->0, A+A->0, test if selection is uniform for each cell/particle/pair
-   integer, parameter :: nSpecies = 3, nReactions = 2 ! 0->A+B, C->A+B
+   !integer, parameter :: nSpecies = 3, nReactions = 2 ! 0->A+B, C->A+B
    !integer, parameter :: nSpecies = 1, nReactions = 2 ! A+A->A, 0->A
 
 !--------------------------------------
@@ -62,7 +62,7 @@ module DoiBoxModule
    !integer, parameter :: wp = sp ! Single precision
    
    ! Choose dimensionality:
-   integer, parameter :: nDimensions = 2 ! 1D, 2D and 3D work but remember to change lines below also
+   integer, parameter :: nDimensions = 3 ! 1D, 2D and 3D work but remember to change lines below also
    !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/3, 1, 0, 0/) ! 1D
    integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
    !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/27, 1, 1, 1/) ! 3D

@@ -13,15 +13,15 @@ program ParticleSpring
     real(wp)                                            :: tau, dt, k, l0, a, visc, dimensionlessTSSize, mu, D, mu_eff, D_cm, D_d, mu1, mu2
     character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', nml_file = "diffusiveSpringParam.nml"
 
-
+    ! Uncomment below if want to read from namefile.
     !call read_namelist(nml_file)
 
-    !Below are Parameters which work, to read from namelist.
+    !Below are Parameters which work nicely, to read from namelist.
     integer                                             :: seed = 6  !Started at 5
     n = 100000 !500000
     k = 1.0_wp
     l0 = 0.0_wp  ! / sqrt(kb * T /  k) or 1E-4
-    a = 5.29E-6_wp
+    a = 5.29E-6_wp      ! a and visc are unnecessary if you just define mu, but I'll keep for now. 
     visc = 8.9E-4_wp
     dimensionlessTSSize = 0.01
     nsteps = 100     ! Used to be 100
@@ -62,13 +62,13 @@ program ParticleSpring
         !rcm = 0.5 * (r1 + r2) (for euler uncomment)
         !r_rel = r1-r2   
 
-        write(myunit1,*) r_cm 
+        !write(myunit1,*) r_cm 
         write(myunit2,*) r_rel
 
         !call Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)        ! Just one tau step each iterate. So dtau*nsteps = tau
         !call explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-        call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-
+        !call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
+        call exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)
         
     end do
 
@@ -101,13 +101,13 @@ program ParticleSpring
                 sdev_cm = sqrt(2 * D_cm * dt)
                 sdev_d = sqrt(2 * D_d * dt)
 
-                ! Will want to apply one Implicit Midpoint step on BOTH rcm and rd (rcm can be commented out)
+                ! Will want to apply one Implicit Midpoint step on BOTH rcm and rd (rcm can be uncommented out)
 
                 ! COM STEP
                 ! Predictor Step
-                r_cm_pred = r_cm + sdev_cm * disp1
+                !r_cm_pred = r_cm + sdev_cm * disp1
                 !   Corrector Step
-                r_cm = r_cm + sdev_cm * disp1
+                !r_cm = r_cm + sdev_cm * disp1
 
                 ! R DIFFERENCE STEP. Note I think that for both predicting and correcting step in the implicit trap method is the SAME Wiener increment, as in the paper there is no subscript. (Not true for explicit midpoint)
                 l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
@@ -200,9 +200,9 @@ program ParticleSpring
 
                 ! COM STEP
                 ! Predictor Step
-                r_cm_pred = r_cm + sqrt(1/2.0) * sdev_cm * disp1
+                !r_cm_pred = r_cm + sqrt(1/2.0) * sdev_cm * disp1
                 ! Corrector Step
-                r_cm = r_cm + sqrt(1/2.0) * sdev_cm * (disp1 + disp2)
+                !r_cm = r_cm + sqrt(1/2.0) * sdev_cm * (disp1 + disp2)
 
                 ! R DIFFERENCE STEP
                 l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
@@ -217,7 +217,35 @@ program ParticleSpring
 
 
 
-        end subroutine                
+        end subroutine 
+        
+        ! Subroutine uses the exact solution of the Ornstein-Uhlenbeck process to solve the dr_d SODE (not the dr_cm SODE)
+        ! This is detailed in the Ornstein-Uhlenbeck wikipedia page, and it states that
+        ! r_d = r0 exp( -theta * t) + sigma / sqrt(2*theta)exp(-theta*t)W*
+        ! Where W* is a Wiener increment with variance exp(2*theta*t) - 1, and also theta = - mu_eff *k * (l0-l12)/l12
+        subroutine exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)   
+            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_d
+            integer, intent(in)                         :: nsteps
+            real(wp), dimension(dim), intent(inout)     :: r_rel
+
+            ! Local Variables
+            real(wp), dimension(dim)                    :: disp1
+            real(wp)                                    :: l12, theta
+            integer                                     :: i
+
+            do i = 1, nsteps
+                call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
+
+
+                l12 = norm2(r_rel)
+                theta = -mu_eff * k * (l0 - l12) / l12
+                r_rel = r_rel * exp(-theta * dt) + sqrt( D_d / theta) * exp(-theta * dt) * sqrt(exp(2*theta*dt) - 1) * disp1
+
+            end do
+            
+
+        end subroutine
+
 
         ! Subroutine to read in the data from a namelist file. 
         subroutine read_namelist(file_path)

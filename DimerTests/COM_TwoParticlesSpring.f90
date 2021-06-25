@@ -8,9 +8,9 @@ program ParticleSpring
 
     integer, parameter                                  :: wp = r_sp, dim = 1
     real(wp), parameter                                 :: pi = 4.0_wp*ATAN(1.0_wp), KB = 1.38065E-23_wp, T = 300.0_wp
-    real(wp), dimension(dim)                            :: r1, r2, rcm, r_rel
+    real(wp), dimension(dim)                            :: r1, r2, r_cm, r_rel
     integer                                             :: n, i, nsteps, myunit1, myunit2 
-    real(wp)                                            :: tau, dt, k, l0, a, visc, dimensionlessTSSize, mu, D, mu_eff, Dcm, D_d, mu1, mu2
+    real(wp)                                            :: tau, dt, k, l0, a, visc, dimensionlessTSSize, mu, D, mu_eff, D_cm, D_d, mu1, mu2
     character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', nml_file = "diffusiveSpringParam.nml"
 
 
@@ -37,10 +37,12 @@ program ParticleSpring
 
     mu_eff = mu1 + mu2
     D_d = KB * T * mu_eff
-    Dcm = KB * T * mu1 * mu2 / (mu1 + mu2)
+    D_cm = KB * T * mu1 * mu2 / (mu1 + mu2)
 
+
+    ! For simplicity, I overwrite the diffusion coefficients calculated above to make it nicer, but for a real simulation would delete the below two lines
     D_d = 2.0_wp
-    Dcm = 0.5_wp
+    D_cm = 0.5_wp
 
     call SeedRNG(seed) 
 
@@ -53,19 +55,19 @@ program ParticleSpring
     open(newunit = myunit1, file = filenameDiff)
     open(newunit = myunit2, file = filenameRel) 
 
-    rcm = 0.5 * (r1 + r2)
+    r_cm = mu2 * r1 / mu_eff + mu1 * r2 / mu_eff
     r_rel = r1-r2  
          
     do i = 0, n
         !rcm = 0.5 * (r1 + r2) (for euler uncomment)
         !r_rel = r1-r2   
 
-        write(myunit1,*) rcm 
+        write(myunit1,*) r_cm 
         write(myunit2,*) r_rel
 
         !call Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)        ! Just one tau step each iterate. So dtau*nsteps = tau
-        call explicitMidpoint(dt, nsteps, mu_eff, k, Dcm, D_d, l0, rcm, r_rel)
-        !call implicitMidpoint(dt, nsteps, mu_eff, k, Dcm, D_d, l0, rcm, r_rel)
+        !call explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
+        call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
 
         
     end do
@@ -75,50 +77,54 @@ program ParticleSpring
 
     contains
 
-        subroutine implicitMidpoint(dt, nsteps, mu_eff, k, Dcm, D_d, l0, rcm, rd)
-            real(wp), intent(in)                        :: dt, mu_eff, k, l0, Dcm, D_d
+        ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" Delong et. al. 
+        ! Implements the scheme found in equation (33), that is where L = mu_eff * k * (l0-l12)/l12,
+        ! x^{p,n+1} = x^n + dt/2 * L * (x^n + x^{p,n+1}) + sqrt(2 D dt) N_1(0,1)
+        ! x^{n+1} = x^n + dt/2 * (L(x^n)x^n + L(x^n+1)x^{n+1}) + sqrt(dt 2D)N_1(0,1)
+        ! Note that these are sampled from the same Normal distribution (they will change b/w r_cm and r_d but the predictor and corrector step seem to use the same W increment in the paper)
+        subroutine implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
             integer, intent(in)                         :: nsteps
-            real(wp), dimension(dim), intent(inout)     :: rcm, rd
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: disp1, disp2, rcm_pred, r_d_pred
+            real(wp), dimension(dim)                    :: disp1, disp2, r_cm_pred, r_rel_pred
             real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n
             integer                                     :: i
 
-            !mu_eff = mu1 * mu2 / (mu1 + mu2)
 
             ! Implicit Midpoint loop
             do i = 1, nsteps
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
 
-                sdev_cm = sqrt(2 * Dcm)
-                sdev_d = sqrt(2 * D_d)
+                sdev_cm = sqrt(2 * D_cm * dt)
+                sdev_d = sqrt(2 * D_d * dt)
 
-                ! Will want to apply one Implicit Midpoint step on BOTH rcm and rd
+                ! Will want to apply one Implicit Midpoint step on BOTH rcm and rd (rcm can be commented out)
 
                 ! COM STEP
                 ! Predictor Step
-                rcm_pred = rcm + sqrt(dt) * sdev_cm * disp1
+                r_cm_pred = r_cm + sdev_cm * disp1
                 !   Corrector Step
-                rcm = rcm + (sqrt(dt) / 2) * (sdev_cm + sdev_cm) * disp1
+                r_cm = r_cm + sdev_cm * disp1
 
-                ! R DIFFERENCE STEP
-                l12 = norm2(rd) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
+                ! R DIFFERENCE STEP. Note I think that for both predicting and correcting step in the implicit trap method is the SAME Wiener increment, as in the paper there is no subscript. (Not true for explicit midpoint)
+                l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
                 L_n = mu_eff * k * (l0 - l12) / l12
 
                 !Predictor Step
-                r_d_pred = rd + (dt / 2) * L_n * rd + sqrt(dt) * sdev_d * disp1
-                r_d_pred = r_d_pred / (1 - dt * L_n / 2)
+                r_rel_pred = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
+                r_rel_pred = r_rel_pred / (1 - dt * L_n / 2)
 
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
 
-                rd = rd + (dt/2) * L_n * rd + (sqrt(dt) / 2) * (sdev_d + sdev_d) * disp1
+                r_rel = r_rel + (dt/2) * L_n * r_rel + sdev_d * disp2
 
-                l12 = norm2(r_d_pred)  ! For evaluation of L_n+1
+                l12 = norm2(r_rel_pred)  ! For evaluation of L_n+1
                 L2_n = mu_eff * k * (l0 - l12) / l12
 
-                rd = rd / (1 - dt * L2_n / 2)
+                r_rel = r_rel / (1 - dt * L2_n / 2)
             end do
 
 
@@ -164,42 +170,47 @@ program ParticleSpring
 
         end subroutine    
         
-        subroutine explicitMidpoint(dt, nsteps, mu_eff, k, Dcm, D_d, l0, rcm, r_rel)
-            real(wp), intent(in)                        :: dt, mu_eff, k, l0, Dcm, D_d
+        ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" Delong et. al. 
+        ! Implements the scheme found in equation (31), that is, where L = mu_eff * k * (l0-l12)/l12,
+        ! x^{p,n+1/2} = x^n + dt/2 * L(x^n) * (x^n) + sqrt(D dt) N_1(0,1)
+        ! x^{n+1} = x^n + dt * (L(x^{n+1/2})x^{p,n+1/2} + sqrt(dt D) (N_1(0,1) + N_2(0,1))
+        subroutine explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
             integer, intent(in)                         :: nsteps
-            real(wp), dimension(dim), intent(inout)     :: rcm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: disp1, disp2, rcm_pred, r_rel_pred
+            real(wp), dimension(dim)                    :: disp1, disp2, r_cm_pred, r_rel_pred, disp3, disp4
             real(wp)                                    :: l12, sdev_cm, sdev_d
             integer                                     :: i
 
-            !mu_eff = mu1 * mu2 / (mu1 + mu2)
 
             ! Explicit Midpoint loop
             do i = 1, nsteps
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
+                call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
+                call NormalRNGVec(numbers = disp4, n_numbers = dim) ! Mean zero and variance one
 
                 l12 = norm2(r_rel)
-                sdev_cm = sqrt(2 * Dcm)
-                sdev_d = sqrt(2 * D_d)
+                sdev_cm = sqrt(2 * D_cm * dt)
+                sdev_d = sqrt(2 * D_d * dt)
 
-                ! Will want to apply one Explicit Midpoint step on BOTH rcm and rd
+                ! Will want to apply one Explicit Midpoint on ONLY rd (the rcm code is commented, but I kept it just so I could make sure it was working correctly)
 
                 ! COM STEP
                 ! Predictor Step
-                rcm_pred = rcm + sqrt(dt/2) * sdev_cm * disp1
+                r_cm_pred = r_cm + sqrt(1/2.0) * sdev_cm * disp1
                 ! Corrector Step
-                rcm = rcm + sqrt(dt/2) * sdev_cm * (disp1 + disp2)
+                r_cm = r_cm + sqrt(1/2.0) * sdev_cm * (disp1 + disp2)
 
                 ! R DIFFERENCE STEP
                 l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
                 !Predictor Step
-                r_rel_pred = r_rel + dt * mu_eff * k * r_rel * (l0 - l12) / (l12 * 2) + sqrt(dt / 2) * sdev_d * disp1
+                r_rel_pred = r_rel + dt * mu_eff * k * r_rel * (l0 - l12) / (l12 * 2) + sqrt(1 / 2.0) * sdev_d * disp3
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
                 l12 =norm2(r_rel_pred) ! L evaluated at n + 1/2
-                r_rel = r_rel + dt * mu_eff * k * r_rel_pred * (l0 - l12) / (l12) + sqrt(dt / 2) * sdev_d * (disp1 + disp2)
+                r_rel = r_rel + dt * mu_eff * k * r_rel_pred * (l0 - l12) / (l12) + sqrt(1 / 2.0) * sdev_d * (disp3 + disp4)
                 
 
             end do

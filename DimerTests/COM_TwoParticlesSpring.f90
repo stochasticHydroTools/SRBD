@@ -11,13 +11,15 @@ program ParticleSpring
     real(wp), dimension(dim)                            :: r1, r2, r_cm, r_rel
     integer                                             :: n, i, nsteps, myunit1, myunit2 
     real(wp)                                            :: tau, dt, k, l0, a, visc, dimensionlessTSSize, mu, D, mu_eff, D_cm, D_d, mu1, mu2
-    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', nml_file = "diffusiveSpringParam.nml"
+    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', &
+                                                             nml_file = "diffusiveSpringParam.nml"
+    logical, parameter                                  :: evolve_r_cm = .true.
 
     ! Uncomment below if want to read from namefile.
     !call read_namelist(nml_file)
 
     !Below are Parameters which work nicely, to read from namelist.
-    integer                                             :: seed = 6  !Started at 5
+    integer                                             :: seed = 5  !Started at 5
     n = 100000 !500000
     k = 1.0_wp
     l0 = 0.0_wp  ! / sqrt(kb * T /  k) or 1E-4
@@ -40,7 +42,8 @@ program ParticleSpring
     D_cm = KB * T * mu1 * mu2 / (mu1 + mu2)
 
 
-    ! For simplicity, I overwrite the diffusion coefficients calculated above to make it nicer, but for a real simulation would delete the below two lines
+    ! For simplicity, I overwrite the diffusion coefficients calculated above to make it nicer, 
+    ! but for a real simulation would delete the below two lines
     D_d = 2.0_wp
     D_cm = 0.5_wp
 
@@ -49,7 +52,7 @@ program ParticleSpring
     ! Initialize starting positions.
     r1 = -2E-4_wp
     ! Suggest initializing at a distance of l0 to start
-    ! An interesting exercise is to figure out how to generate a random vector of length l0...we can discuss
+    ! An interesting exercise is to figure out how to generate a random vector of length l0
     r2 = 2E-4_wp ! sqrt(l0**2 / dim)       ! Initial distance is l0, 
   
     open(newunit = myunit1, file = filenameDiff)
@@ -62,13 +65,14 @@ program ParticleSpring
         !rcm = 0.5 * (r1 + r2) (for euler uncomment)
         !r_rel = r1-r2   
 
-        !write(myunit1,*) r_cm 
+        if (evolve_r_cm) write(myunit1,*) r_cm 
+        
         write(myunit2,*) r_rel
 
-        !call Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)        ! Just one tau step each iterate. So dtau*nsteps = tau
+        !call Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)       
         !call explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-        !call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-        call exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)
+        call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
+        !call exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)
         
     end do
 
@@ -77,11 +81,14 @@ program ParticleSpring
 
     contains
 
-        ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" Delong et. al. 
+        ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" 
+        ! Delong et. al. 
         ! Implements the scheme found in equation (33), that is where L = mu_eff * k * (l0-l12)/l12,
         ! x^{p,n+1} = x^n + dt/2 * L * (x^n + x^{p,n+1}) + sqrt(2 D dt) N_1(0,1)
         ! x^{n+1} = x^n + dt/2 * (L(x^n)x^n + L(x^n+1)x^{n+1}) + sqrt(dt 2D)N_1(0,1)
-        ! Note that these are sampled from the same Normal distribution (they will change b/w r_cm and r_d but the predictor and corrector step seem to use the same W increment in the paper)
+        ! Note that these are sampled from the same Normal distribution 
+        ! (they will change b/w r_cm and r_d but the predictor & corrector step 
+        ! seem to use the same W increment in the paper)
         subroutine implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
             real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
             integer, intent(in)                         :: nsteps
@@ -101,16 +108,22 @@ program ParticleSpring
                 sdev_cm = sqrt(2 * D_cm * dt)
                 sdev_d = sqrt(2 * D_d * dt)
 
-                ! Will want to apply one Implicit Midpoint step on BOTH rcm and rd (rcm can be uncommented out)
+                ! Will want to apply one Implicit Midpoint step
 
                 ! COM STEP
-                ! Predictor Step
-                !r_cm_pred = r_cm + sdev_cm * disp1
-                !   Corrector Step
-                !r_cm = r_cm + sdev_cm * disp1
+                if (evolve_r_cm) then
+                    ! Predictor Step
+                    r_cm_pred = r_cm + sdev_cm * disp1
+                    !   Corrector Step
+                    r_cm = r_cm + sdev_cm * disp1
+                end if
 
-                ! R DIFFERENCE STEP. Note I think that for both predicting and correcting step in the implicit trap method is the SAME Wiener increment, as in the paper there is no subscript. (Not true for explicit midpoint)
-                l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
+                ! R DIFFERENCE STEP. Note I think that for both predicting and correcting step in the implicit 
+                ! trap method is the SAME Wiener increment, as in the paper there is no subscript. 
+                ! (Not true for explicit midpoint)
+                ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). 
+                ! Make sure to update appropriately
+                l12 = norm2(r_rel) 
                 L_n = mu_eff * k * (l0 - l12) / l12
 
                 !Predictor Step
@@ -125,6 +138,8 @@ program ParticleSpring
                 L2_n = mu_eff * k * (l0 - l12) / l12
 
                 r_rel = r_rel / (1 - dt * L2_n / 2)
+
+
             end do
 
 
@@ -170,7 +185,8 @@ program ParticleSpring
 
         end subroutine    
         
-        ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" Delong et. al. 
+        ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators 
+        ! for Fluctuating Hydrodynamics" Delong et. al. 
         ! Implements the scheme found in equation (31), that is, where L = mu_eff * k * (l0-l12)/l12,
         ! x^{p,n+1/2} = x^n + dt/2 * L(x^n) * (x^n) + sqrt(D dt) N_1(0,1)
         ! x^{n+1} = x^n + dt * (L(x^{n+1/2})x^{p,n+1/2} + sqrt(dt D) (N_1(0,1) + N_2(0,1))
@@ -196,21 +212,23 @@ program ParticleSpring
                 sdev_cm = sqrt(2 * D_cm * dt)
                 sdev_d = sqrt(2 * D_d * dt)
 
-                ! Will want to apply one Explicit Midpoint on ONLY rd (the rcm code is commented, but I kept it just so I could make sure it was working correctly)
+                ! Will want to apply one Explicit Midpoint on ONLY rd 
 
                 ! COM STEP
-                ! Predictor Step
-                !r_cm_pred = r_cm + sqrt(1/2.0) * sdev_cm * disp1
-                ! Corrector Step
-                !r_cm = r_cm + sqrt(1/2.0) * sdev_cm * (disp1 + disp2)
+                if (evolve_r_cm) then
+                    ! Predictor Step
+                    r_cm_pred = r_cm + sqrt(0.5_wp) * sdev_cm * disp1
+                    ! Corrector Step
+                    r_cm = r_cm + sqrt(0.5_wp) * sdev_cm * (disp1 + disp2)
+                end if
 
                 ! R DIFFERENCE STEP
-                l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). Make sure to update appropriately
+                l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n
                 !Predictor Step
-                r_rel_pred = r_rel + dt * mu_eff * k * r_rel * (l0 - l12) / (l12 * 2) + sqrt(1 / 2.0) * sdev_d * disp3
+                r_rel_pred = r_rel + dt * mu_eff * k * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_wp) * sdev_d * disp3
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
                 l12 =norm2(r_rel_pred) ! L evaluated at n + 1/2
-                r_rel = r_rel + dt * mu_eff * k * r_rel_pred * (l0 - l12) / (l12) + sqrt(1 / 2.0) * sdev_d * (disp3 + disp4)
+                r_rel = r_rel + dt * mu_eff * k * r_rel_pred * (l0 - l12) / (l12) + sqrt(0.5_wp) * sdev_d * (disp3 + disp4)
                 
 
             end do

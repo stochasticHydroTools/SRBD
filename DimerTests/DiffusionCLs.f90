@@ -71,19 +71,19 @@ module DiffusionCLs
 
 
         ! Donev: Should read the namelist and open files and allocate arrays (we may need extra arrays to keep track of reactions ourselves)
-        subroutine initializeCLs(nml_file)
+      !  subroutine initializeCLs()
 
 
            ! call read_namelist(nml_file)
 
-            if (isOutput) then 
-                open(newunit = myunit1, file = 'test.txt') 
-                close(myunit1)
-            end if
+           ! if (isOutput) then 
+          !      open(newunit = myunit1, file = 'test.txt') 
+         !       close(myunit1)
+        !    end if
 
 
 
-        end subroutine
+       ! end subroutine
 
         subroutine destruct()
 

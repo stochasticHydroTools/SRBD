@@ -1,0 +1,9 @@
+&diffCLs
+mu_1 = 1.0,
+mu_2 = 1.0,
+k_s = 1.0, 
+enumer = 2,
+nsteps = 1000,
+l0 = 0.0
+/
+&END

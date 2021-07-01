@@ -1,65 +1,67 @@
 program ParticleSpring
     use Precision
     use BoxLibRNGs
+    use DiffusionCLs
+    !use DiffusionCLs
     use, intrinsic :: iso_fortran_env, only: stderr => error_unit       ! This is so I can track errors.
     implicit none 
 
     ! Look at time scales LARGER than tau. 
 
-    integer, parameter                                  :: wp = r_sp, dim = 1
+    integer, parameter                                  :: wp = r_sp, dim = 3
     real(wp), parameter                                 :: pi = 4.0_wp*ATAN(1.0_wp), KB = 1.38065E-23_wp, T = 300.0_wp
     real(wp), dimension(dim)                            :: r1, r2, r_cm, r_rel
     integer                                             :: n, i, nsteps, myunit1, myunit2 
-    real(wp)                                            :: tau, dt, k, l0, a, visc, dimensionlessTSSize, mu, D, mu_eff, D_cm, D_d, mu1, mu2
-    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt', &
+    real(wp)                                            :: tau, dt, mu, D, k, kbT, l0, a, visc, dimensionlessTSSize, mu_eff, D_cm, D_rel, mu_1, mu_2
+    character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDistRotationalTestSeed20.txt', &
                                                              nml_file = "diffusiveSpringParam.nml"
-    logical, parameter                                  :: evolve_r_cm = .true.
+    logical, parameter                                  :: evolve_r_cm = .false.
 
     ! Uncomment below if want to read from namefile.
     !call read_namelist(nml_file)
 
     !Below are Parameters which work nicely, to read from namelist.
-    integer                                             :: seed = 5  !Started at 5
+    integer                                             :: seed = 20  !Started at 5
     n = 100000 !500000
-    k = 1.0_wp
-    l0 = 0.0_wp  ! / sqrt(kb * T /  k) or 1E-4
-    a = 5.29E-6_wp      ! a and visc are unnecessary if you just define mu, but I'll keep for now. 
-    visc = 8.9E-4_wp
-    dimensionlessTSSize = 0.01
-    nsteps = 100     ! Used to be 100
-
-    mu = 1.0_wp !/ (6*pi*visc*a)
-    tau = 1.0 / (mu * k)
-    D = 1.0_wp ! kb*T*mu ! Uncomment to left, but to calculate diffusive coefficients it is easier to have a nice value
-    dt = tau * dimensionlessTSSize   ! Arbitrarily chosen (this is delta t, which is a fraction of tau)
+    k = 100.0_wp
+    l0 = 0.5_wp!0.05_wp  ! / sqrt(kb * T /  k) or 1E-4
+    a = 0.01_wp      ! a and visc are unnecessary if you just define mu, but I'll keep for now. 
+    visc = 1.0_wp
+    dimensionlessTSSize = 1.0E-3_wp
+    nsteps = 100    ! Used to be 100
+    kbT = 4.0E-3_wp
 
     ! Optional Parameters
-    mu1 = 1.0_wp
-    mu2 = 1.0_wp
+    mu_1 = 1.0_wp / (6 * pi * visc * a) !1.0_wp
+    mu_2 = 1.0_wp / (6 * pi * visc * a)
+    mu_eff = mu_1 + mu_2
 
-    mu_eff = mu1 + mu2
-    D_d = KB * T * mu_eff
-    D_cm = KB * T * mu1 * mu2 / (mu1 + mu2)
+    tau = 1.0 / (mu_1 * k)      ! Which tau should this be, if mu is different
+    dt = tau * dimensionlessTSSize   ! Arbitrarily chosen (this is delta t, which is a fraction of tau)
+
 
 
     ! For simplicity, I overwrite the diffusion coefficients calculated above to make it nicer, 
     ! but for a real simulation would delete the below two lines
-    D_d = 2.0_wp
-    D_cm = 0.5_wp
+    !D_rel = 2.0_wp
+    !D_cm = 0.5_wp
 
     call SeedRNG(seed) 
 
     ! Initialize starting positions.
-    r1 = -2E-4_wp
+    r1 = 1.0_wp
     ! Suggest initializing at a distance of l0 to start
     ! An interesting exercise is to figure out how to generate a random vector of length l0
-    r2 = 2E-4_wp ! sqrt(l0**2 / dim)       ! Initial distance is l0, 
+    r2 = -1.0_wp ! sqrt(l0**2 / dim)       ! Initial distance is l0, 
   
     open(newunit = myunit1, file = filenameDiff)
     open(newunit = myunit2, file = filenameRel) 
 
-    r_cm = mu2 * r1 / mu_eff + mu1 * r2 / mu_eff
+    r_cm = mu_2 * r1 / mu_eff + mu_1 * r2 / mu_eff
     r_rel = r1-r2  
+
+    mu = 1 / (6 * pi * visc * a)
+    D = kbT * mu
          
     do i = 0, n
         !rcm = 0.5 * (r1 + r2) (for euler uncomment)
@@ -67,12 +69,13 @@ program ParticleSpring
 
         if (evolve_r_cm) write(myunit1,*) r_cm 
         
-        write(myunit2,*) r_rel
+        write(myunit2,*) r_rel / norm2(r_rel)      ! unit vector if and only if looking at rotational diffusion
 
-        !call Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)       
-        !call explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-        call implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-        !call exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)
+        !call Euler_MaruyamaOld(dt, nsteps, mu, k, D, l0, r1, r2)       
+        !call Euler_Maruyama(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+        !call explicitMidpoint(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+        call implicitTrapezoidal(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+        !call exactSol(dt, nsteps, mu_eff, k, D_rel, l0, r_rel)
         
     end do
 
@@ -80,6 +83,47 @@ program ParticleSpring
     close(myunit2)   
 
     contains
+
+        subroutine Euler_MaruyamaOld(dt, nsteps, mu, k, D, l0, r1, r2)
+            real(wp), intent(in)                        :: dt, mu, k, l0, D
+            integer, intent(in)                         :: nsteps          
+            real(wp), dimension(dim), intent(inout)     :: r1, r2
+            
+            ! Local variables           
+            real(wp), dimension(dim)                    :: disp1, disp2, vel
+            real(wp)                                    :: l12, sdev
+            integer                                     :: i
+
+
+
+            ! Brownian Motion with Deterministic Drift Realization. 
+            do i = 1, nsteps
+                call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
+                call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
+
+                l12 = norm2(r1-r2) 
+
+                sdev = sqrt(2 * D * dt)
+
+
+                ! If > 1 dimensions:
+                if (dim /= 1) then 
+                    vel = r1 - r2
+                    vel = mu * k * (l12 - l0) * vel / l12
+
+                    r1 = r1 - vel * dt + sdev*disp1 ! Apply one Euler-Maruyama Step to both r1, r2.
+                    r2 = r2 + vel * dt + sdev*disp2 
+
+                ! If 1 Dimension
+                else 
+                    r1 = r1 + mu * k * (r2 - r1 - l0) * dt + sdev*disp1
+                    r2 = r2 + mu * k * (r1 - r2 - l0) * dt + sdev*disp2
+                end if
+
+            end do
+
+        end subroutine   
+
 
         ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" 
         ! Delong et. al. 
@@ -89,15 +133,19 @@ program ParticleSpring
         ! Note that these are sampled from the same Normal distribution 
         ! (they will change b/w r_cm and r_d but the predictor & corrector step 
         ! seem to use the same W increment in the paper)
-        subroutine implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
+        subroutine implicitTrapezoidal(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, mu_1, mu_2, k, l0
             integer, intent(in)                         :: nsteps
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
             real(wp), dimension(dim)                    :: disp1, disp2, r_cm_pred, r_rel_pred
-            real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n
+            real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, mu_eff, D_cm, D_rel
             integer                                     :: i
+
+            mu_eff = mu_1 + mu_2
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
 
 
             ! Implicit Midpoint loop
@@ -106,7 +154,7 @@ program ParticleSpring
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
 
                 sdev_cm = sqrt(2 * D_cm * dt)
-                sdev_d = sqrt(2 * D_d * dt)
+                sdev_d = sqrt(2 * D_rel * dt)
 
                 ! Will want to apply one Implicit Midpoint step
 
@@ -147,58 +195,74 @@ program ParticleSpring
         end subroutine
     
 
-        subroutine Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)
-            real(wp), intent(in)                        :: dt, mu, k, l0, D
+        subroutine Euler_Maruyama(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, mu_1, mu_2, k, l0
             integer, intent(in)                         :: nsteps          
-            real(wp), dimension(dim), intent(inout)     :: r1, r2
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
             
             ! Local variables           
-            real(wp), dimension(dim)                    :: disp1, disp2, vel
-            real(wp)                                    :: l12, sdev
+            real(wp), dimension(dim)                    :: disp1, disp2
+            real(wp)                                    :: l12, sdev_cm, sdev_rel, D_rel, D_cm, mu_eff
             integer                                     :: i
-
+    
+            ! Since we pass mu_1, mu_2, we must now calculate these quantities here.
+            mu_eff = mu_1 + mu_2
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
+    
+    
             ! Brownian Motion with Deterministic Drift Realization. 
             do i = 1, nsteps
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
-
-                l12 = norm2(r1-r2) 
-
-                sdev = sqrt(2 * D * dt)
-
-
-                ! If > 1 dimensions:
-                if (dim /= 1) then 
-                    vel = r1 - r2
-                    vel = mu * k * (l12 - l0) * vel / l12
-
-                    r1 = r1 - vel * dt + sdev*disp1 ! Apply one Euler-Maruyama Step to both r1, r2.
-                    r2 = r2 + vel * dt + sdev*disp2 
-
-                ! If 1 Dimension
-                else 
-                    r1 = r1 + mu * k * (r2 - r1 - l0) * dt + sdev*disp1
-                    r2 = r2 + mu * k * (r1 - r2 - l0) * dt + sdev*disp2
+    
+                l12 = norm2(r_rel) 
+    
+                sdev_cm = sqrt(2 * D_cm * dt)
+                sdev_rel = sqrt(2 * D_rel * dt)
+    
+                if (evolve_r_cm) then
+                    r_cm = r_cm + sdev_cm * disp1                 
                 end if
-
+    
+                r_rel = r_rel + mu_eff * k * dt * r_rel * (l0 - l12) / l12 + sdev_rel * disp2
+    
+                ! If > 1 dimensions:
+                !if (dim /= 1) then 
+                !    vel = r1 - r2
+                !    vel = mu * k * (l12 - l0) * vel / l12
+    
+               !     r1 = r1 - vel * dt + sdev*disp1 ! Apply one Euler-Maruyama Step to both r1, r2.
+                !    r2 = r2 + vel * dt + sdev*disp2 
+    
+                ! If 1 Dimension
+                !else 
+                !    r1 = r1 + mu * k * (r2 - r1 - l0) * dt + sdev*disp1
+                !    r2 = r2 + mu * k * (r1 - r2 - l0) * dt + sdev*disp2
+                !end if
+    
             end do
+    
+        end subroutine   
 
-        end subroutine    
-        
         ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators 
         ! for Fluctuating Hydrodynamics" Delong et. al. 
         ! Implements the scheme found in equation (31), that is, where L = mu_eff * k * (l0-l12)/l12,
         ! x^{p,n+1/2} = x^n + dt/2 * L(x^n) * (x^n) + sqrt(D dt) N_1(0,1)
         ! x^{n+1} = x^n + dt * (L(x^{n+1/2})x^{p,n+1/2} + sqrt(dt D) (N_1(0,1) + N_2(0,1))
-        subroutine explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
+        subroutine explicitMidpoint(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, k, l0, mu_1, mu_2
             integer, intent(in)                         :: nsteps
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
             real(wp), dimension(dim)                    :: disp1, disp2, r_cm_pred, r_rel_pred, disp3, disp4
-            real(wp)                                    :: l12, sdev_cm, sdev_d
+            real(wp)                                    :: l12, sdev_cm, sdev_d, mu_eff, D_rel, D_cm
             integer                                     :: i
+
+            mu_eff = mu_1 + mu_2
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
 
 
             ! Explicit Midpoint loop
@@ -210,7 +274,7 @@ program ParticleSpring
 
                 l12 = norm2(r_rel)
                 sdev_cm = sqrt(2 * D_cm * dt)
-                sdev_d = sqrt(2 * D_d * dt)
+                sdev_d = sqrt(2 * D_rel * dt)
 
                 ! Will want to apply one Explicit Midpoint on ONLY rd 
 
@@ -241,8 +305,8 @@ program ParticleSpring
         ! This is detailed in the Ornstein-Uhlenbeck wikipedia page, and it states that
         ! r_d = r0 exp( -theta * t) + sigma / sqrt(2*theta)exp(-theta*t)W*
         ! Where W* is a Wiener increment with variance exp(2*theta*t) - 1, and also theta = - mu_eff *k * (l0-l12)/l12
-        subroutine exactSol(dt, nsteps, mu_eff, k, D_d, l0, r_rel)   
-            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_d
+        subroutine exactSol(dt, nsteps, mu_eff, k, D_rel, l0, r_rel)   
+            real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_rel
             integer, intent(in)                         :: nsteps
             real(wp), dimension(dim), intent(inout)     :: r_rel
 
@@ -257,7 +321,7 @@ program ParticleSpring
 
                 l12 = norm2(r_rel)
                 theta = -mu_eff * k * (l0 - l12) / l12
-                r_rel = r_rel * exp(-theta * dt) + sqrt( D_d / theta) * exp(-theta * dt) * sqrt(exp(2*theta*dt) - 1) * disp1
+                r_rel = r_rel * exp(-theta * dt) + sqrt( D_rel / theta) * exp(-theta * dt) * sqrt(exp(2*theta*dt) - 1) * disp1
 
             end do
             

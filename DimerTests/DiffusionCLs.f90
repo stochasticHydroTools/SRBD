@@ -5,7 +5,7 @@ module DiffusionCLs
     implicit none 
     save
 
-    integer, parameter                              :: wp = r_sp, dim = 3       ! Note, dim should be nDimensions, but cant access from here.
+    integer, parameter                              :: wp = r_sp, dim = 3, kbT = 4.0E-3_wp       ! Note, dim should be nDimensions, but cant access from here.
     real(wp)                                        :: k_s, mu_1, mu_2, l0, mu_eff
     integer                                         :: nsteps, enumer, myunit1
     character(len = 128)                            :: nml_file = "diffCLs.nml"
@@ -79,7 +79,6 @@ module DiffusionCLs
 
 
        ! end subroutine
-        
         ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" 
         ! Delong et. al. 
         ! Implements the scheme found in equation (33), that is where L = mu_eff * k * (l0-l12)/l12,
@@ -99,8 +98,8 @@ module DiffusionCLs
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2
-            D_rel = 2.0_wp !KB * T * mu_eff
-            D_cm = 0.5_wp !KB * T * mu_1 * mu_2 / (mu_1 + mu_2)
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
 
 
             ! Implicit Midpoint loop
@@ -162,8 +161,8 @@ module DiffusionCLs
     
             ! Since we pass mu_1, mu_2, we must now calculate these quantities here.
             mu_eff = mu_1 + mu_2
-            D_rel = 2.0_wp !KB * T * mu_eff
-            D_cm = 0.5_wp ! KB * T * mu_1 * mu_2 / (mu_1 + mu_2)
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
     
     
             ! Brownian Motion with Deterministic Drift Realization. 
@@ -171,7 +170,7 @@ module DiffusionCLs
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
     
-                l12 = norm2(r1-r2) 
+                l12 = norm2(r_rel) 
     
                 sdev_cm = sqrt(2 * D_cm * dt)
                 sdev_rel = sqrt(2 * D_rel * dt)
@@ -216,8 +215,8 @@ module DiffusionCLs
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2
-            D_rel = 2.0_wp ! KB * T * mu_eff
-            D_cm = 0.5_wp !KB * T * mu_1 * mu_2 / (mu_1 + mu_2)
+            D_rel = kbT * mu_eff
+            D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
 
 
             ! Explicit Midpoint loop
@@ -282,7 +281,6 @@ module DiffusionCLs
             
 
         end subroutine
-
 
 
 

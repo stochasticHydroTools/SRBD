@@ -50,7 +50,7 @@ FSOURCES=
 
 # From HydroGrid library:
 CSOURCES += RNGs.c visit_writer.c
-FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 VisitWriter.f90
+FSOURCES += Precision.f90 RNGEngine.f90 RNG.f90 NURNGs.f90 Random.f90 FFTW.f90 VisitWriter.f90 DiffusionCLs.f90
 
 OBJECTS=$(CSOURCES:.c=.o) $(FSOURCES:.f90=.o) 
 
@@ -86,6 +86,9 @@ FFTW.o: FFTW.f90 Precision.o
 	$(FC) -c $<
 
 VisitWriter.o: VisitWriter.f90
+	$(FC) -c $<
+
+DiffusionCLs.o: DiffusionCLs.f90 RNG.o Precision.o
 	$(FC) -c $<
 
 # Executables:

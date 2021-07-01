@@ -5,7 +5,7 @@
    nStatsStep = 5 ! Print some statistics to screen
    nEquilibrationStep = 0
    nSampleStep = 0 ! Do not use HydroGrid here
-   seed = 0
+   seed = 167
 /
 
 

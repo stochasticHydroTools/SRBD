@@ -2,6 +2,7 @@
 module DoiBoxModule
    use MinHeapModule
    use BoxLibRNGs ! Random number generation
+   use DiffusionCLs
    implicit none
    save
    
@@ -886,7 +887,7 @@ subroutine mover (box,timestep,randomShift)
    integer :: initialSpecies
    real (wp) :: dtime
    real (wp), dimension (nDimensions) :: initialPosition
-   logical, parameter :: evolve_r_cm = .true.
+   logical, parameter :: evolve_r_cm = .true., test_actin = .true.
    !integer :: nLeaving, nEntering ! Donev: These are not really useful
 
    if (IRDME_trace) return
@@ -1156,7 +1157,7 @@ contains
       
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp, r_cm, r_rel
-      integer :: p, dim, side, k, nsteps
+      integer :: p, dim, side, k, nsteps, myunit1
       real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_eff, l0, k_s, mu_1, mu_2, D_cm, D_d
 
       ! This is arbitrary
@@ -1232,6 +1233,14 @@ contains
                   ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
                   box%particle(p)%position = r_rel + (r_cm * mu_eff - mu_2 * r_rel) / mu_eff
                   box%particle(p + 1)%position = (r_cm * mu_eff - mu_2 * r_rel) / mu_eff
+
+                  !print *, p
+
+                  if (p == 3) then
+                     open(newunit = myunit1, file = 'output.txt')
+                        write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
+                     close(myunit1)
+                  end if
 
 
                else if (box%particle(p)%species /= 1) then   ! Note the case of an even p with the CL species will just skip and do NOTHING (as intended)

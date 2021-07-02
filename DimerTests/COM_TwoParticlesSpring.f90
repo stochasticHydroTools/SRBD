@@ -12,14 +12,16 @@ program ParticleSpring
     real(wp), dimension(dim)                            :: r1, r2, r_cm, r_rel
     integer                                             :: i, myunit3, myunit4, n
     character(len=128)                                  :: filenameDiff = 'diffusion.txt', filenameRel = 'relDist.txt'
+    logical, parameter                                  :: rotational = .false.
     
     ! Uncomment below if want to read from namefile.
     !call read_namelist(nml_file)
 
     call initializeCLs()
 
-    
-    n = 100000
+
+    n = 100000          ! How many data points saved (this is not too related to DiffusionCLs, so am putting it here)     
+
 
     call SeedRNG(seed) 
 
@@ -38,10 +40,16 @@ program ParticleSpring
 
         if (evolve_r_cm) write(myunit1,*) r_cm 
         
-        write(myunit4,*) r_rel       ! unit vector if and only if looking at rotational diffusion
+        if (rotational) then
+            write(myunit4,*) r_rel / norm2(r_rel)     
+
+        else
+            write(myunit4,*) r_rel       
+        end if
 
         select case (enumer)
 
+        ! For now, will not use the exact sol since this is only useful for l0 = 0
         case(1)
             call Euler_Maruyama(dt, nsteps, mu_1, mu_2, k_s, l0, r_cm, r_rel)
 

@@ -7,7 +7,7 @@ module DiffusionCLs
 
     integer, parameter                              :: wp = r_sp, dim = 3       ! Note, dim should be nDimensions, but cant access from here.
     real(wp), parameter                             :: kbT = 1.0_wp, pi = 4.0_wp*ATAN(1.0_wp)
-    real(wp)                                        :: k_s, mu_1, mu_2, l0, dimensionlessTSSize, dt, a, visc, tau, mu_eff
+    real(wp)                                        :: k_s, mu_1, mu_2, l0, dimensionlessTSSize, dt, a_1, a_2, visc, tau, mu_eff
     integer                                         :: nsteps, enumer, myunit1, seed
     character(len = 128)                            :: nml_file = "diffCLs.nml"
     logical, parameter                              :: isOutput = .true., evolve_r_cm = .false.
@@ -22,7 +22,7 @@ module DiffusionCLs
             integer                        :: unit, check
 
             ! Namelist definition.
-            namelist /diffCLs/ mu_1, mu_2, k_s, enumer, nsteps, l0 
+            namelist /diffCLs/ seed, k_s, l0, a_1, a_2, visc, dimensionlessTSSize, nsteps, enumer
 
             ! Check whether file exists.
             inquire (file=file_path, iostat=check)
@@ -40,6 +40,7 @@ module DiffusionCLs
             ! This is to keep people aware of cases like : End of File runtime errors.
             if (check /= 0) then
                 write (stderr, '(a)') 'Error: invalid Namelist format.'
+                print *, check
             end if
 
             close (unit)
@@ -47,33 +48,25 @@ module DiffusionCLs
 
 
 
-        ! Donev: Should read the namelist and open files and allocate arrays (we may need extra arrays to keep track of reactions ourselves)
+        ! Reads the namelist and open files and allocate arrays (we may need extra arrays to
+        ! keep track of reactions ourselves)
         subroutine initializeCLs()
 
             ! Will read namelist and put in all values.
+            ! Specifically, this reads in : seed, k_s, l0, a_1, a_2, visc, dimensionlessTSSize, nsteps, enumer
+            ! Other things, like filenames to write to are not included, because this is oly needed in
+            ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.
+            call read_namelist(nml_file)
 
-            !While I write this file though, it is easier to just write them all here. 
-            seed = 20  !Started at 5
-            k_s = 1.0_wp
-            l0 = 0.01_wp!0.05_wp  ! / sqrt(kb * T /  k) or 1E-4
-            a = 0.01_wp      ! a and visc are unnecessary if you just define mu, but I'll keep for now. 
-            visc = 1.0_wp
-            dimensionlessTSSize = 1.0E-3_wp
-            nsteps = 100    ! Used to be 100
-            enumer = 1
 
-            mu_1 = 1.0_wp! / (6 * pi * visc * a) 
-            mu_2 = 1.0_wp! / (6 * pi * visc * a)
+            !Below are not in namelist since they SHOULD be defined in terms of other params in nml
+            !Here I just overwrite to be 1 however, since it is nicer to work with.
+            mu_1 = 1.0_wp! / (6 * pi * visc * a_1) 
+            mu_2 = 1.0_wp! / (6 * pi * visc * a_2)
             mu_eff = mu_1 + mu_2
 
-            tau = 1.0 / (mu_1 * k_s)      ! Which tau should this be, if mu is different
+            tau = 1.0 / (mu_1 * k_s)      ! Which tau should this be, if mu is different (or should it be mu_eff)
             dt = tau * dimensionlessTSSize   ! Arbitrarily chosen (this is delta t, which is a fraction of tau)
-
-
-           ! call read_namelist(nml_file)
-
- 
-
 
         end subroutine
 

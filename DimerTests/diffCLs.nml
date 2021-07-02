@@ -1,9 +1,12 @@
 &diffCLs
-mu_1 = 1.0_wp,
-mu_2 = 1.0_wp,
-k_s = 1.0_wp, 
-enumer = 2,
-nsteps = 1000,
-l0 = 0.0_wp
+  seed = 20,
+  k_s = 1.0,
+  l0 = 0.01,
+  a_1 = 0.01,
+  a_2 = 0.01,
+  visc = 1.0,
+  dimensionlessTSSize = 1.0E-3,
+  nsteps = 100,
+  enumer = 2
 /
 &END

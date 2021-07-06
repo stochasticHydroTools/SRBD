@@ -8,7 +8,7 @@ module DoiBoxModule
    
    ! Change for different reaction schemes and recompile:
    !integer, parameter :: nSpecies = 3, nReactions = 7 ! BPM model
-   integer, parameter :: nSpecies = 4, nReactions = 2 ! A<->B+C test in IRDME
+   integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME Kishore: For our purposes is it enough to change nSpecies = 4?
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->B, 0->A equilibrium (from Radek Erban)
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->0, A+A->0, rate test in IRDME
    !integer, parameter :: nSpecies = 3, nReactions = 4 ! 0->A, A->0, A+B->0, A+A->0, test if selection is uniform for each cell/particle/pair
@@ -805,6 +805,7 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
             call UniformRNGVec (random, size(random))
          end if   
          ! Kishore: Is this what I would have to change when taking in Ondrej's actin?
+         ! I think that this is where I would change the initialization with ondrej's dimers.
          box%particle(iParticle)%position(1:nDimensions) = ( iCell(1:nDimensions) - 1 + random ) * sampleCellLength(1:nDimensions)
          box%particle(iParticle)%position(nDimensions+1:nMaxDimensions) = 0.0_wp
 
@@ -1014,14 +1015,6 @@ contains
       ! Note: I initialize diffusionCls in the initialization routine in this code. 
       nsteps = 100 ! Kishore: Arbitrary intialization but I think the default in this code is nsteps =1?
 
-      ! Kishore: Since this can CHANGE, I am not reading this in from DiffusionCLs. 
-      ! But mu is defined in terms of a, and visc which are CONSTANT
-      ! So ideally, I will define mu_1, mu_2 in terms of params from DiffCLs
-      ! Will turn these to 0 upon actin binding, so they are NOT
-      ! Constant throughout, so defined in here
-      mu_1 = 1.0_wp
-      mu_2 = 1.0_wp
-
       ! PARALLEL: This is the main loop that can benefit from parallelization
       !    It is a loop over particles, some of which can be no-ops
       !    So it is important here to use cyclic distribution over threads
@@ -1066,10 +1059,21 @@ contains
                      
                ! Kishore: If we have encountered a cross-linker (species 1) and we are odd, then we will diffuse the odd-even PAIR together
                ! What this means is that I must do nothing if p is even. 
-               if (mod(p,2) == 1 .and. box%particle(p)%species == 1) then 
-                  ! The call below makes a few assumptions:
-                  ! 1. the p+1^th entry is of the same species type (I think for my purposes at this point, this is true)
-                  ! 2. Equal Radii --> Equal Diffusion coefficients.
+               if (mod(p,2) == 1 .and. box%particle(p)%species == 1 .and. box%particle(p+1)%species == 1) then 
+
+                  mu_1 = mu_1_0
+                  mu_2 = mu_2_0
+               
+               else if (mod(p,2) == 1 .and. box%particle(p)%species /= 1) then 
+                  mu_1 = 0.0_wp
+                  mu_2 = mu_2_0
+
+               else if (mod(p,2) == 0 .and. box%particle(p)%species /= 1) then 
+                  
+                  mu_1 = mu_1_0
+                  mu_2 = 0.0_wp
+
+               end if
 
                                  
                   r_cm = mu_2 * box%particle(p)%position / (mu_1 + mu_2) + mu_1 * box%particle(p + 1)%position / (mu_1+ mu_2)
@@ -1100,14 +1104,6 @@ contains
                   !      write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
                   !   close(myunit1)
                   !end if
-
-
-               else if (box%particle(p)%species /= 1) then   ! Note the case of an even p with the CL species will just skip and do NOTHING (as intended)
-                  call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
-                  disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
-                  box%particle(p)%position = box%particle(p)%position + disp
-
-               end if
                
             end if
                

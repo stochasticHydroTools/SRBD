@@ -6,13 +6,14 @@ module DiffusionCLs
     save
 
     integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
-    real(pr)                                        :: kbT = 1.0_pr
-    real(pr)                                        :: a_1, a_2, visc, k_s
+    real(pr)                                        :: kbT = 4.0E-3_pr
+    real(pr)                                        :: a_1, a_2, visc, k_s, mu_1_0, mu_2_0, tau
     real(pr), private                               :: mu_eff, l0          ! These all either defined in terms of existing quantities, or not liekly to be changed
     integer                                         :: sde_integrator_enum      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
     integer, private                                :: myunit1
     character(len = 128), private                   :: nml_file = "diffCLs.nml"
     logical, parameter                              :: evolve_r_cm = .true.
+    real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr)
 
 
     private                                         :: read_namelist
@@ -27,8 +28,10 @@ module DiffusionCLs
             ! Other things, like filenames to write to are not included, because this is oly needed in
             ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.
             call read_namelist(nml_file)
-
-
+            mu_1_0 = 1.0_pr / (6 * pi * visc * a_1)
+            mu_2_0 = 1.0_pr / (6 * pi * visc * a_2)
+            
+            tau = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))
 
         end subroutine
 

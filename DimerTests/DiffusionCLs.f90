@@ -6,10 +6,32 @@ module DiffusionCLs
     save
 
     integer, parameter                              :: wp = r_sp, dim = 3       ! Note, dim should be nDimensions, but cant access from here.
+    ! Donev: It is a bit strange to make kbT a parameter but give it the wrong value -- maybe make it a variable so user can set correct value?
     real(wp), parameter                             :: kbT = 1.0_wp, pi = 4.0_wp*ATAN(1.0_wp)
+    ! Donev: Some of these variables should maybe be private, see below
     real(wp)                                        :: k_s, mu_1, mu_2, l0, dimensionlessTSSize, dt, a_1, a_2, visc, tau, mu_eff
+    ! Donev: Variable nsteps makes no sense here -- what does it mean
+    ! The number of steps taken should be an argument passed into the routines, and is controlled by the driver (the code using these routines)
+    ! Variables like myunit1 should be private, as in:
+    ! private :: myunit1 
+    ! after you declare it. If it really needs to be public, give it a proper clear name like diffusion_cl_unit or diffusionCLUnit
+    ! Think about which variables should be private here, i.e., things you only use internally but that are not used outside.
+    ! One example may be mu_eff, dimensionlessTSSize
+    ! Other variables that are input arguments should NOT also be module variables
+    ! Use module variables only for variables that have one and only one value set globally for the whole run.
+    ! Time step is something that can vary in principle (e.g., multiple routines could be using the temporal integrators here with different dt)
+    ! Generally speaking, try to MINIMIZE the number of module variables (they prevent parallelization, for example, since there is one and only one copy)
+    ! and especially always minimize number of public module variables
+    ! There should be ONE and only one seed in the way you are using the random number stream (there is only one random stream for the whole code)
+    ! This is now set in main.f90, and so there is a conflict with this seed variable
+    ! I think you can assume here that the seed is set in the caller and not mess with it
+    ! Another way is that we can have a separate random stream for this code, but this requires some code changes so let's not do it
+    ! enum is not a good variable name, since it is too generic and unclear. Something like sde_integrator or sde_integrator_enum would be much better
     integer                                         :: nsteps, enumer, myunit1, seed
+    ! Donev: add a comment here explaining what the possible values of enumer are and what they mean, e.g. =1: Euler-Maryuyama, =2: explicit midpoint
     character(len = 128)                            :: nml_file = "diffCLs.nml"
+    ! Donev: Variable isOutput does not seem to be used, so delete it
+    ! Donev: Default value of evolve_r_cm should be .true.
     logical, parameter                              :: isOutput = .true., evolve_r_cm = .false.
 
 
@@ -22,6 +44,10 @@ module DiffusionCLs
             integer                        :: unit, check
 
             ! Namelist definition.
+            ! Donev: Remove seed, dimensionlessTSSize, nsteps from here since these conflict with other variables
+            ! time step should be set by caller -- it is an argument to the routines below so should not be a global variable (it can change with every call)
+            ! nsteps also
+            ! seed is discussed above
             namelist /diffCLs/ seed, k_s, l0, a_1, a_2, visc, dimensionlessTSSize, nsteps, enumer
 
             ! Check whether file exists.
@@ -64,12 +90,13 @@ module DiffusionCLs
             mu_1 = 1.0_wp! / (6 * pi * visc * a_1) 
             mu_2 = 1.0_wp! / (6 * pi * visc * a_2)
             mu_eff = mu_1 + mu_2
-
+            
+            ! Donev: tau should be defined in terms of mu_eff -- this is what you figured out recently was the issue with explicit midpoint stability limit
             tau = 1.0 / (mu_1 * k_s)      ! Which tau should this be, if mu is different (or should it be mu_eff)
+            ! Donev: Remove
             dt = tau * dimensionlessTSSize   ! Arbitrarily chosen (this is delta t, which is a fraction of tau)
 
         end subroutine
-
 
         ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" 
         ! Delong et. al. 
@@ -89,13 +116,15 @@ module DiffusionCLs
             real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, mu_eff, D_cm, D_rel
             integer                                     :: i
 
-            mu_eff = mu_1 + mu_2
+            mu_eff = mu_1 + mu_2 ! Add some comments, like: Effective mobility for r_cm
             D_rel = kbT * mu_eff
             D_cm = kbT * mu_1 * mu_2 / (mu_1 + mu_2)
 
-
+            ! Donev: This is implicit trapezoidal not midpoint so change the comments consistently throughout
             ! Implicit Midpoint loop
             do i = 1, nsteps
+                ! Donev: Move this line inside the if(evolve_r_cm) since only used there. Same for all other routines
+                ! The point of evolve_r_cm is to be more efficient if set to .false., so don't generate extra random variables
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
 
@@ -105,7 +134,10 @@ module DiffusionCLs
                 ! Will want to apply one Implicit Midpoint step
 
                 ! COM STEP
+                ! Donev: IMPORTANT: r_cm should always be evolved using EM regardless of how r_d is evolved
+                ! So change all of these to just take one EM step
                 if (evolve_r_cm) then
+                    ! Donev: should just be the "corrector" step (EM) -- no need for predictor
                     ! Predictor Step
                     r_cm_pred = r_cm + sdev_cm * disp1
                     !   Corrector Step
@@ -140,7 +172,8 @@ module DiffusionCLs
 
         end subroutine
     
-
+        ! Donev: Make this be the first routine in order in the file (since it is the simplest and basic integrator)
+        ! and rename to eulerMaruyama for consistency
         subroutine Euler_Maruyama(dt, nsteps, mu_1, mu_2, k, l0, r_cm, r_rel)
             real(wp), intent(in)                        :: dt, mu_1, mu_2, k, l0
             integer, intent(in)                         :: nsteps          
@@ -213,6 +246,9 @@ module DiffusionCLs
 
             ! Explicit Midpoint loop
             do i = 1, nsteps
+                ! Donev: Move the call to NormalRNGVec closer to where the variables are actually used
+                ! this makes it easier to read the code instead of having to look down where disp1 is used etc.
+                ! it would also have helped you put disp1 generation inside the if statement
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
@@ -225,6 +261,7 @@ module DiffusionCLs
                 ! Will want to apply one Explicit Midpoint on ONLY rd 
 
                 ! COM STEP
+                ! Donev: IMPORTANT: r_cm should always be evolved using EM regardless of how r_d is evolved
                 if (evolve_r_cm) then
                     ! Predictor Step
                     r_cm_pred = r_cm + sqrt(0.5_wp) * sdev_cm * disp1
@@ -247,6 +284,8 @@ module DiffusionCLs
 
         end subroutine 
         
+        ! Donev: This is only correct for l0=0, since it assumes the equation is linear and theta is constant but for you theta changes with l12.
+        ! So move this routine somewhere else, not inside this module since this module is "the real deal" and not testing code
         ! Subroutine uses the exact solution of the Ornstein-Uhlenbeck process to solve the dr_d SODE (not the dr_cm SODE)
         ! This is detailed in the Ornstein-Uhlenbeck wikipedia page, and it states that
         ! r_d = r0 exp( -theta * t) + sigma / sqrt(2*theta)exp(-theta*t)W*

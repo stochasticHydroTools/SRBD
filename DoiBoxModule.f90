@@ -296,6 +296,8 @@ subroutine initializeDoiParameters (writeToOutput)
    if(writeOutPUT) write(*,*) 'Sample cell length:', sampleCellLength
    if(writeOutput) write(*,*) 'Doi timestep = ', inputTimestep
 
+   call initializeCLs()    ! Kishore: To initialize cross linker parameters.
+
 end subroutine initializeDoiParameters
 
 !--------------------------------------
@@ -996,178 +998,27 @@ subroutine mover (box,timestep,randomShift)
 
 contains
 
-   ! Implements the Euler-Maruyama method for the Ornstein-Uhlnebeck Process
-   ! In an overdamped spring
-   subroutine Euler_Maruyama(dt, nsteps, mu, k, D, l0, r1, r2)
-      real(wp), intent(in)                        :: dt, mu, k, l0, D
-      integer, intent(in)                         :: nsteps          
-      real(wp), dimension(nDimensions), intent(inout)     :: r1, r2
-      
-      ! Local variables           
-      real(wp), dimension(nDimensions)                    :: disp1, disp2, vel
-      real(wp)                                    :: l12, sdev
-      integer                                     :: i
-
-      ! Brownian Motion with Deterministic Drift Realization. 
-      do i = 1, nsteps
-         call NormalRNGVec(numbers = disp1, n_numbers = nDimensions) ! Mean zero and variance one
-         call NormalRNGVec(numbers = disp2, n_numbers = nDimensions) ! Mean zero and variance one
-
-         l12 = norm2(r1-r2) 
-
-         sdev = sqrt(2 * D * dt)
-
-
-         ! If > 1 dimensions:
-         if (nDimensions /= 1) then 
-            vel = r1 - r2
-            vel = mu * k * (l12 - l0) * vel / l12
-
-            r1 = r1 - vel * dt + sdev*disp1 ! Apply one Euler-Maruyama Step to both r1, r2.
-            r2 = r2 + vel * dt + sdev*disp2 
-
-         ! If 1 Dimension
-         else 
-            r1 = r1 + mu * k * (r2 - r1 - l0) * dt + sdev*disp1
-            r2 = r2 + mu * k * (r1 - r2 - l0) * dt + sdev*disp2
-         end if
-
-      end do
-
-   end subroutine 
-
-        ! Implicit trapezoidal integrator as detailed in "Multiscale Temporal Integrators for Fluctuating Hydrodynamics" 
-        ! Delong et. al. 
-        ! Implements the scheme found in equation (33), that is where L = mu_eff * k * (l0-l12)/l12,
-        ! x^{p,n+1} = x^n + dt/2 * L * (x^n + x^{p,n+1}) + sqrt(2 D dt) N_1(0,1)
-        ! x^{n+1} = x^n + dt/2 * (L(x^n)x^n + L(x^n+1)x^{n+1}) + sqrt(dt 2D)N_1(0,1)
-        ! Note that these are sampled from the same Normal distribution 
-        ! (they will change b/w r_cm and r_d but the predictor & corrector step 
-        ! seem to use the same W increment in the paper)
-   subroutine implicitTrapezoidal(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-      real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
-      integer, intent(in)                         :: nsteps
-      real(wp), dimension(nDimensions), intent(inout)     :: r_cm, r_rel
-
-      ! Local Variables
-      real(wp), dimension(nDimensions)                    :: disp1, disp2, r_cm_pred, r_rel_pred
-      real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n
-      integer                                     :: i
-
-
-      ! Implicit Midpoint loop
-      do i = 1, nsteps
-          call NormalRNGVec(numbers = disp1, n_numbers = nDimensions) ! Mean zero and variance one
-          call NormalRNGVec(numbers = disp2, n_numbers = nDimensions) ! Mean zero and variance one
-
-          sdev_cm = sqrt(2 * D_cm * dt)
-          sdev_d = sqrt(2 * D_d * dt)
-
-          ! Will want to apply one Implicit Midpoint step
-
-          ! COM STEP
-          if (evolve_r_cm) then
-              ! Predictor Step
-              r_cm_pred = r_cm + sdev_cm * disp1
-              !   Corrector Step
-              r_cm = r_cm + sdev_cm * disp1
-          end if
-
-          ! R DIFFERENCE STEP. Note I think that for both predicting and correcting step in the implicit 
-          ! trap method is the SAME Wiener increment, as in the paper there is no subscript. 
-          ! (Not true for explicit midpoint)
-          ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). 
-          ! Make sure to update appropriately
-          l12 = norm2(r_rel) 
-          L_n = mu_eff * k * (l0 - l12) / l12
-
-          !Predictor Step
-          r_rel_pred = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
-          r_rel_pred = r_rel_pred / (1 - dt * L_n / 2)
-
-          ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
-
-          r_rel = r_rel + (dt/2) * L_n * r_rel + sdev_d * disp2
-
-          l12 = norm2(r_rel_pred)  ! For evaluation of L_n+1
-          L2_n = mu_eff * k * (l0 - l12) / l12
-
-          r_rel = r_rel / (1 - dt * L2_n / 2)
-
-
-      end do
-  end subroutine
-
-   ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators 
-   ! for Fluctuating Hydrodynamics" Delong et. al. 
-   ! Implements the scheme found in equation (31), that is, where L = mu_eff * k * (l0-l12)/l12,
-   ! x^{p,n+1/2} = x^n + dt/2 * L(x^n) * (x^n) + sqrt(D dt) N_1(0,1)
-    ! x^{n+1} = x^n + dt * (L(x^{n+1/2})x^{p,n+1/2} + sqrt(dt D) (N_1(0,1) + N_2(0,1))
-   subroutine explicitMidpoint(dt, nsteps, mu_eff, k, D_cm, D_d, l0, r_cm, r_rel)
-      real(wp), intent(in)                        :: dt, mu_eff, k, l0, D_cm, D_d
-      integer, intent(in)                         :: nsteps
-      real(wp), dimension(nDimensions), intent(inout)     :: r_cm, r_rel
-
-      ! Local Variables
-      real(wp), dimension(nDimensions)                    :: disp1, disp2, r_cm_pred, r_rel_pred, disp3, disp4
-      real(wp)                                    :: l12, sdev_cm, sdev_d
-      integer                                     :: i
-
-
-      ! Explicit Midpoint loop
-      do i = 1, nsteps
-         call NormalRNGVec(numbers = disp1, n_numbers = nDimensions) ! Mean zero and variance one
-         call NormalRNGVec(numbers = disp2, n_numbers = nDimensions) ! Mean zero and variance one
-         call NormalRNGVec(numbers = disp3, n_numbers = nDimensions) ! Mean zero and variance one
-         call NormalRNGVec(numbers = disp4, n_numbers = nDimensions) ! Mean zero and variance one
-
-         l12 = norm2(r_rel)
-         sdev_cm = sqrt(2 * D_cm * dt)
-         sdev_d = sqrt(2 * D_d * dt)
-
-         ! Will want to apply one Explicit Midpoint on ONLY rd 
-
-         ! COM STEP
-         if (evolve_r_cm) then
-            ! Predictor Step
-            r_cm_pred = r_cm + sqrt(0.5_wp) * sdev_cm * disp1
-            ! Corrector Step
-            r_cm = r_cm + sqrt(0.5_wp) * sdev_cm * (disp1 + disp2)
-         end if
-
-         ! R DIFFERENCE STEP
-         l12 = norm2(r_rel) ! Evaluate l12 when we are at x_n
-         !Predictor Step
-         r_rel_pred = r_rel + dt * mu_eff * k * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_wp) * sdev_d * disp3
-         ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
-         l12 =norm2(r_rel_pred) ! L evaluated at n + 1/2
-         r_rel = r_rel + dt * mu_eff * k * r_rel_pred * (l0 - l12) / (l12) + sqrt(0.5_wp) * sdev_d * (disp3 + disp4)
-         
-
-      end do
-
-
-
-   end subroutine 
-
-
    subroutine brownianMover(box,dtime)
       type (DoiBox), target :: box
-      real (wp), intent(in) :: dtime
+      real (wp), intent(in) :: dtime         ! Kishore: Should I be assuming that this dt is already a 
+      ! function of tau (eg. 0.01 * tau)?
       
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp, r_cm, r_rel
-      integer :: p, dim, side, k, nsteps, myunit1
-      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_eff, l0, k_s, mu_1, mu_2, D_cm, D_d
+      integer :: p, dim, side, k, nsteps
+      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
 
-      ! This is arbitrary
-      nsteps = 1000
+      ! Note: I initialize diffusionCls in the initialization routine in this code. 
+      nsteps = 100 ! Kishore: Arbitrary intialization but I think the default in this code is nsteps =1?
+
+      ! Kishore: Since this can CHANGE, I am not reading this in from DiffusionCLs. 
+      ! But mu is defined in terms of a, and visc which are CONSTANT
+      ! So ideally, I will define mu_1, mu_2 in terms of params from DiffCLs
+      ! Will turn these to 0 upon actin binding, so they are NOT
+      ! Constant throughout, so defined in here
       mu_1 = 1.0_wp
       mu_2 = 1.0_wp
-      mu_eff = mu_1 + mu_2     ! Equal to mu1 + mu2
-      l0 = 0.0_wp
-      k_s = 1.0_wp ! Spring coefficient
-      
+
       ! PARALLEL: This is the main loop that can benefit from parallelization
       !    It is a loop over particles, some of which can be no-ops
       !    So it is important here to use cyclic distribution over threads
@@ -1217,41 +1068,46 @@ contains
                   ! 1. the p+1^th entry is of the same species type (I think for my purposes at this point, this is true)
                   ! 2. Equal Radii --> Equal Diffusion coefficients.
 
-                  ! Can and should be changed later. 
-                  D_cm = 0.5_wp * D 
-                  D_d = 2.0_wp * D 
-                  
-                  r_cm = mu_2 * box%particle(p)%position / mu_eff + mu_1 * box%particle(p + 1)%position / mu_eff
+                                 
+                  r_cm = mu_2 * box%particle(p)%position / (mu_1 + mu_2) + mu_1 * box%particle(p + 1)%position / (mu_1+ mu_2)
                   r_rel = box%particle(p)%position - box%particle(p + 1)%position
 
-                  ! We can use many different methods. Can eventually implement a boolean to choose which method, but for now have comments. Euler directly 
-                  ! computes r1/r2 but the others work from rcm backwards
-                  !call Euler_Maruyama(dtime, nsteps, mu_eff, k_s, D, l0, box%particle(p)%position, box%particle(p + 1)%position)
-                  call explicitMidpoint(dtime, nsteps, mu_eff, k_s, D_cm, D_d, l0, r_cm, r_rel)
-                  !call implicitTrapezoidal(dtime, nsteps, mu_eff, k_s, D_cm, D_d, l0, r_cm, r_rel)  
+                  
+                  select case(sde_integrator_enum)
+                  case(1)
+                     call eulerMaruyama(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
+                  case(2)
+                     call explicitMidpoint(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
+                  case(3)
+                     call implicitTrapezoidal(dtime, nsteps, mu_1, mu_2, r_cm, r_rel) 
+                  end select
                   
                   ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
-                  box%particle(p)%position = r_rel + (r_cm * mu_eff - mu_2 * r_rel) / mu_eff
-                  box%particle(p + 1)%position = (r_cm * mu_eff - mu_2 * r_rel) / mu_eff
+                  box%particle(p)%position = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+                  box%particle(p + 1)%position = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
 
+                  ! Kishore: One thing that is interesting is that if I print p, I get only odd numbers but not consecutively odd
+                  ! So I might get 211, 213, 217. 
+                  ! Doesn't this mean that the cross-linkers (species 1) are not in consecutive order?
                   !print *, p
 
-                  if (p == 3) then
-                     open(newunit = myunit1, file = 'output.txt')
-                        write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
-                     close(myunit1)
-                  end if
+                  ! Output tests for debugging purposes:
+                  !if (p == 3) then
+                  !   open(newunit = myunit1, file = 'output.txt')
+                  !      write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
+                  !   close(myunit1)
+                  !end if
 
 
                else if (box%particle(p)%species /= 1) then   ! Note the case of an even p with the CL species will just skip and do NOTHING (as intended)
                   call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
                   disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
+                  box%particle(p)%position = box%particle(p)%position + disp
 
                end if
                
             end if
                
-            box%particle(p)%position = box%particle(p)%position + disp
             
          end if
       end do

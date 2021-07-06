@@ -8,7 +8,7 @@ module DoiBoxModule
    
    ! Change for different reaction schemes and recompile:
    !integer, parameter :: nSpecies = 3, nReactions = 7 ! BPM model
-   integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME
+   integer, parameter :: nSpecies = 4, nReactions = 2 ! A<->B+C test in IRDME
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->B, 0->A equilibrium (from Radek Erban)
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->0, A+A->0, rate test in IRDME
    !integer, parameter :: nSpecies = 3, nReactions = 4 ! 0->A, A->0, A+B->0, A+A->0, test if selection is uniform for each cell/particle/pair
@@ -776,7 +776,7 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
    do iSpecies = 1, nSpecies       
    
       ! Decide how many particles to generate:
-      if(addDensityFluctuations) then ! Generate a Poisson number of particles for each species
+      if(addDensityFluctuations) then ! Generate a Poisson number of particles for each species; Kishore: True right now.
          mean = sampleCellVolume * cellNumberDensity(iSpecies)
          if(usePoisson) then
             call PoissonRNG (nParticlesInCell, mean)
@@ -796,13 +796,15 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
          " in cell ", iCell, " isR=", isReservoirCell
 
       do iteration = 1, nParticlesInCell
-         iParticle = box%freeParticle
+         iParticle = box%freeParticle   ! Kishore: This is consistently 1, so later when we index by iParticle
+         ! What is the purpose of this?
 
          if(diffuseByHopping>1) then ! Remain strictly on a lattice
             random=0.5_wp
          else   
             call UniformRNGVec (random, size(random))
          end if   
+         ! Kishore: Is this what I would have to change when taking in Ondrej's actin?
          box%particle(iParticle)%position(1:nDimensions) = ( iCell(1:nDimensions) - 1 + random ) * sampleCellLength(1:nDimensions)
          box%particle(iParticle)%position(nDimensions+1:nMaxDimensions) = 0.0_wp
 
@@ -812,6 +814,7 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
             box%particle(iParticle)%species = iSpecies
          end if
          
+         ! Update both total species count and individual species count
          box%nParticles(0) = box%nParticles(0) + 1
          box%nParticles(iSpecies) = box%nParticles(iSpecies) + 1
          call updateFreeParticle(box)

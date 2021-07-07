@@ -1054,44 +1054,58 @@ contains
                      end if      
                   end do
                end do FindHop
+
+               box%particle(p)%position = box%particle(p)%position + disp
                      
             else ! Continuous random walk  
                      
                ! Kishore: If we have encountered a cross-linker (species 1) and we are odd, then we will diffuse the odd-even PAIR together
                ! What this means is that I must do nothing if p is even. 
-               if (mod(p,2) == 1 .and. box%particle(p)%species == 1 .and. box%particle(p+1)%species == 1) then 
+               ! Case where we have a dimer that has not bound actin
 
-                  mu_1 = mu_1_0
-                  mu_2 = mu_2_0
+               ! Cross linkers must come in pairs, but one could be attached to actin (seperate species)
+               ! In this case, we would still want to simulate as a spring in some cases. 
+               ! So what matters is that EITHER the p+1th or the pth species are of the CL species
+               ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
+               ! Also only look at odd cases, since otherwise we would double count.
+               if (add_springs .and. mod(p,2) == 1 .and. (box%particle(p)%species == 1 .or. box%particle(p+1)%species == 1)) then
+
+                  ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
+                  if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
+                     mu_1 = 0.0_wp
+                     mu_2 = mu_2_0
+
+                  ! Case where the other end of dimer (r2) has bound actin. 
+                  else if (box%particle(p)%species == 1 .and. box%particle(p+1)%species /= 1) then 
+                     
+                     mu_1 = mu_1_0
+                     mu_2 = 0.0_wp
+                     
+                  ! Case where we have a free-floating CL. Both ends are species 1. 
+                  ! This else clause captures the case ( box%particle(p)%species == 1 .and. box%particle(p+1)%species == 1) 
+                  else  
+                     mu_1 = mu_1_0
+                     mu_2 = mu_2_0
                
-               else if (mod(p,2) == 1 .and. box%particle(p)%species /= 1) then 
-                  mu_1 = 0.0_wp
-                  mu_2 = mu_2_0
+                  end if
 
-               else if (mod(p,2) == 0 .and. box%particle(p)%species /= 1) then 
-                  
-                  mu_1 = mu_1_0
-                  mu_2 = 0.0_wp
+                                    
+                     r_cm = mu_2 * box%particle(p)%position / (mu_1 + mu_2) + mu_1 * box%particle(p + 1)%position / (mu_1 + mu_2)
+                     r_rel = box%particle(p)%position - box%particle(p + 1)%position
 
-               end if
-
-                                 
-                  r_cm = mu_2 * box%particle(p)%position / (mu_1 + mu_2) + mu_1 * box%particle(p + 1)%position / (mu_1+ mu_2)
-                  r_rel = box%particle(p)%position - box%particle(p + 1)%position
-
-                  
-                  select case(sde_integrator_enum)
-                  case(1)
-                     call eulerMaruyama(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
-                  case(2)
-                     call explicitMidpoint(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
-                  case(3)
-                     call implicitTrapezoidal(dtime, nsteps, mu_1, mu_2, r_cm, r_rel) 
-                  end select
-                  
-                  ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
-                  box%particle(p)%position = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
-                  box%particle(p + 1)%position = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+                     
+                     select case(sde_integrator_enum)
+                     case(1)
+                        call eulerMaruyama(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
+                     case(2)
+                        call explicitMidpoint(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
+                     case(3)
+                        call implicitTrapezoidal(dtime, nsteps, mu_1, mu_2, r_cm, r_rel) 
+                     end select
+                     
+                     ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
+                     box%particle(p)%position = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+                     box%particle(p + 1)%position = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
 
                   ! Kishore: One thing that is interesting is that if I print p, I get only odd numbers but not consecutively odd
                   ! So I might get 211, 213, 217. 
@@ -1104,6 +1118,20 @@ contains
                   !      write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
                   !   close(myunit1)
                   !end if
+
+               ! If no springs (add_springs is false) then just diffuse normally. 
+               ! Also doesn't matter the species, if add_springs is false then 
+               ! all species diffuse the same. 
+               else if(D > 0 .and. (.not. add_springs)) then
+                  call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
+                  disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
+                  box%particle(p)%position = box%particle(p)%position + disp
+               end if
+
+               ! In all 'else' cases, we would do nothing. (D < 0 makes no sense, and D = 0 is immobile)
+               ! And if add_springs = .true. but we are NOT odd, we shouldn't
+               ! do anything as we would have done that in the odd step. 
+               ! So there is no else.
                
             end if
                

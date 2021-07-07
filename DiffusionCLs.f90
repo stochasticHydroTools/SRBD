@@ -12,7 +12,7 @@ module DiffusionCLs
     integer                                         :: sde_integrator_enum      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
     integer, private                                :: myunit1
     character(len = 128), private                   :: nml_file = "diffCLs.nml"
-    logical, parameter                              :: evolve_r_cm = .true.
+    logical                                         :: evolve_r_cm, add_springs     ! initialized in namelist, must be public, not parameter cause initialized in nml
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr)
 
 
@@ -189,7 +189,7 @@ module DiffusionCLs
             integer                        :: unit, check
 
             ! Namelist definition.
-            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum
+            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, add_springs
 
             ! Check whether file exists.
             inquire (file=file_path, iostat=check)

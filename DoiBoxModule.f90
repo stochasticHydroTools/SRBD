@@ -403,9 +403,99 @@ subroutine createDoiBox (box, boundaryType, lbSample, ubSample)
          
 end subroutine createDoiBox
 
-
-
+! Kishore/Donev: This is an initialization routine specialized to the actin/cross-linker module
+! Ideally, this routine will call routines inside the DiffusionCLs.f90 file to actually do the work
+! This way we keep the real code for actin binding stuff outside of this module as much as possible
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
+   type (DoiBox), target, intent (inout) :: box
+
+   integer :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
+   real(wp) :: random(nMaxDimensions)
+   
+   ! Initialize without bound dimers:
+   box%nParticles (specie) = 0
+   if(nSpecies<2) stop 'This SRBD code assumes species 1 = actin binding domains/CL ends, and 2 = actin fiber blobs'
+   if(add_springs) then ! CLs are dimers
+      box%nParticles(1) = 2*n_dimers
+   else ! Just do freely-diffusing monomers for testing
+      box%nParticles(1) = n_dimers
+   end if
+   box%nParticles(2) = n_fiber_blobs
+    
+   ! Estimate the average number of particles in each species:
+   do specie=1, nSpecies
+      if(writeOutput) write (*,*) "Number of particles of species ", specie, " is ", box%nParticles(specie)
+   end do
+   box%nParticles(0) = sum(box%nParticles(1:nSpecies)) ! Total number of particles
+
+   nParticles = ceiling ((1+fractionExtraParticles)*box%nParticles (0))
+   if(writeOutput) write(*,*) "Total number of particles = ", box%nParticles(0), " allocated=", nParticles
+   box%nMaxParticles = nParticles
+   
+   if(nMaxParticlesPerCell<=0) then
+      nMaxParticlesPerCell = ceiling ( (10.0_wp * nParticles) / nDoiCells(0) )
+      write(*,*) "Setting nMaxParticlesPerCell=", nMaxParticlesPerCell
+   end if
+
+   allocate ( box%particle(nParticles) )
+   if (reactionScheme==RDME) then
+      allocate ( box%particlesSortedByCell(nParticles) )
+      box%freeParticle=box%nParticles(0)+1
+   else ! We use an LLC data structure
+      !allocate ( box%previousParticle(nParticles) )
+      allocate ( box%nextParticle(nParticles) )
+      box%freeParticle=box%nParticles(0)+1
+      do particle=box%freeParticle, box%nMaxParticles-1
+         box%nextParticle(particle)=particle+1
+      end do
+      box%nextParticle(box%nMaxParticles)=0 ! End of list of free particles
+   end if
+   
+   write(*,*) "Starting to fill domain with particles"
+
+   ! Donev/Kishore: Initialize dimers and actin fibers
+   ! Now actually initialize the domain with particles
+   ! DONEV
+   do iParticle = 1, n_dimers
+      call UniformRNGVec (random, nMaxDimensions)
+      if(add_springs) then ! Insert a dimer at a random location and with random orientation
+         box%particle(2*iParticle-1)%position = random*domainLength
+         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position
+         ! Donev: This initializes all dimers to be aligned with the x axis and have length of l0 (should be fixed later)
+         box%particle(2*iParticle)%position(1) = box%particle(2*iParticle)%position(1) + l0
+         
+         box%particle(2*iParticle-1)%species = 1
+         box%particle(2*iParticle)%species = 1
+         
+      else ! Insert a monomer at a random location
+         box%particle(iParticle)%position = random*domainLength
+         box%particle(iParticle)%species = 1
+      end if   
+   end do
+   do blob=1, n_fiber_blobs
+      iParticle=box%nParticles(1)+blob
+      ! Donev: For now I put the fiber in middle of box along y/z
+      box%particle(iParticle)%position(1) = (blob-n_fiber_blobs/2)*domainLength(1) + domainLength(1)/2
+      box%particle(iParticle)%position(2:nMaxDimensions) = domainLength(2:nMaxDimensions)/2
+      ! Donev: This aligns the fiber blobs one by one along the x axis
+      box%particle(iParticle)%species = 2     
+   end do
+
+   if (reactionScheme==IRDME) then
+      call initializeIRDME(box)
+   else
+      call sorter(box)
+   end if   
+   write (*,*) "Total number of particles at the beginning is ", box%nParticles(0), "=", box%nParticles(1:nSpecies)
+   
+   if (isAssertsOn) then
+      box%initialParticleCount = box%nParticles
+   end if
+
+end subroutine initializeDoiBox
+
+! This is the old routine for initialization in SRBD, which is based on number densities
+subroutine initializeDoiBox_SRBD (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
 
    integer, dimension(nMaxDimensions) :: iCell
@@ -507,7 +597,7 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
       box%initialParticleCount = box%nParticles
    end if
 
-end subroutine initializeDoiBox
+end subroutine initializeDoiBox_SRBD
 
 
 
@@ -799,16 +889,13 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
          " in cell ", iCell, " isR=", isReservoirCell
 
       do iteration = 1, nParticlesInCell
-         iParticle = box%freeParticle   ! Kishore: This is consistently 1, so later when we index by iParticle
-         ! What is the purpose of this?
+         iParticle = box%freeParticle
 
          if(diffuseByHopping>1) then ! Remain strictly on a lattice
             random=0.5_wp
          else   
             call UniformRNGVec (random, size(random))
          end if   
-         ! Kishore: Is this what I would have to change when taking in Ondrej's actin?
-         ! I think that this is where I would change the initialization with ondrej's dimers.
          box%particle(iParticle)%position(1:nDimensions) = ( iCell(1:nDimensions) - 1 + random ) * sampleCellLength(1:nDimensions)
          box%particle(iParticle)%position(nDimensions+1:nMaxDimensions) = 0.0_wp
 
@@ -2675,8 +2762,6 @@ subroutine updateFreeParticle(box)
       box%freeParticle = box%freeParticle + 1
       if (box%freeParticle>ubound(box%particle,1)) then
          write (*,*) 'Allocated space for particle is:', ubound(box%particle,1)
-         !temp=-1
-         !write(temp,*) "BACKTRACE"
          stop 'Ran out of particle storage, add more'
       end if
    else ! Here freeParticle is the head of a list of free particles

@@ -5,14 +5,22 @@ module DiffusionCLs
     implicit none 
     save
 
+    ! Donev: Give all parameters in namelist sensitive initial values so they can be skipped in the namelist
     integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
     real(pr)                                        :: kbT = 4.0E-3_pr ! Boltzmann constant in units of ???
-    real(pr)                                        :: a_1, a_2, visc, k_s, mu_1_0, mu_2_0, tau, l0
-    integer                                         :: sde_integrator_enum      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
+    real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
+    real(pr)                                        :: mu_1_0, mu_2_0, tau ! Computed values
+    integer                                         :: sde_integrator_enum=3      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
     character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
-    logical                                         :: evolve_r_cm, add_springs     ! initialized in namelist, must be public, not parameter cause initialized in nml
+    logical                                         :: evolve_r_cm=.true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr)
-
+    
+    ! Donev
+    ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
+    ! This is done so that minimal changes are made to DoiBoxModule and most changes are here
+    integer :: n_dimers = 10 ! How many dimers to start with; if add_springs=.false. this is number of monomers
+    integer :: n_fiber_blobs = 10 ! How many particles composing the fibers
+    logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
 
     private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint
 
@@ -41,7 +49,8 @@ module DiffusionCLs
             integer                         :: unit, check
 
             ! Namelist definition.
-            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, add_springs
+            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
+                               add_springs, n_dimers, n_fiber_blobs
             
             if(present(nml_unit)) then
                unit=nml_unit

@@ -245,9 +245,9 @@ contains
 ! These need to be called once per processor per Doi domain (level)
 
 subroutine readDoiParameters (fileUnit) ! Read parameters from a NAMELIST file
-   integer, intent(in) :: fileUnit ! If positive, the unit to read the namelist from
+   integer, intent(in), optional :: fileUnit ! If present, the unit to read the namelist from
 
-   integer :: nameListFile = 15
+   integer :: nameListFile = 37
 
    namelist / DoiBoxOptions / reactionRate, reactionNetwork, reactionScheme, numberDensity, &
       speciesDiffusivity, speciesDiameter, sampleCellLength, nSampleCells, &
@@ -256,15 +256,18 @@ subroutine readDoiParameters (fileUnit) ! Read parameters from a NAMELIST file
       inputTimestep, strangSplitting, randomShift, &
       nMaxParticlesPerCell, diffuseByHopping, problem_type
    
-   if (fileUnit<=0) then ! Default
+   if (.not.present(fileUnit)) then ! Default
       if(writeOutput) write(*,*) "Reading Doi parameters from namelist file"
       open (nameListFile, file=  "DoiBoxOptions.nml", status="old", action="read")
    else 
       nameListFile=fileUnit
    end if
    read (nameListFile, nml=DoiBoxOptions)
-   if (fileUnit<=0) close (nameListFile)
-   
+   if (.not.present(fileUnit)) close (nameListFile)
+      
+   ! Kishore/Donev: Read cross-linker parameters
+   call readCLParameters(fileUnit)
+
    if(any(nSampleCells(nDimensions+1:nMaxDimensions)/=1)) stop "Must have only one sampling cell in all trivial dimensions"
 
 end subroutine readDoiParameters
@@ -1006,14 +1009,12 @@ contains
       type (DoiBox), target :: box
       real (wp), intent(in) :: dtime         ! Kishore: Should I be assuming that this dt is already a 
       ! function of tau (eg. 0.01 * tau)?
+      ! Donev: This is whatever it is, you don't control it here (it is set in main, and you don't worry about how it relates to tau (user responsibility))
       
       ! Local variables
-      real (wp), dimension(nMaxDimensions) :: disp, r_cm, r_rel
-      integer :: p, dim, side, k, nsteps
+      real (wp), dimension(nMaxDimensions) :: disp
+      integer :: p, dim, side, k
       real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
-
-      ! Note: I initialize diffusionCls in the initialization routine in this code. 
-      nsteps = 100 ! Kishore: Arbitrary intialization but I think the default in this code is nsteps =1?
 
       ! PARALLEL: This is the main loop that can benefit from parallelization
       !    It is a loop over particles, some of which can be no-ops
@@ -1068,7 +1069,8 @@ contains
                ! So what matters is that EITHER the p+1th or the pth species are of the CL species
                ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
                ! Also only look at odd cases, since otherwise we would double count.
-               if (add_springs .and. mod(p,2) == 1 .and. (box%particle(p)%species == 1 .or. box%particle(p+1)%species == 1)) then
+               ! Donev: Just to amke it clearer, please use parenthesis when constructing composite logical expressions, as I did in the line that follows:
+               if (add_springs .and. (mod(p,2) == 1) .and. ((box%particle(p)%species == 1) .or. (box%particle(p+1)%species == 1))) then
 
                   ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
                   if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
@@ -1088,25 +1090,10 @@ contains
                      mu_2 = mu_2_0
                
                   end if
-
+                  
+                  ! Donev: I moved this code inside DiffusionCL.f90, to not polute this code with too much CL stuff and simplify it
+                  call moveDimer(dtime, 1, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
                                     
-                     r_cm = mu_2 * box%particle(p)%position / (mu_1 + mu_2) + mu_1 * box%particle(p + 1)%position / (mu_1 + mu_2)
-                     r_rel = box%particle(p)%position - box%particle(p + 1)%position
-
-                     
-                     select case(sde_integrator_enum)
-                     case(1)
-                        call eulerMaruyama(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
-                     case(2)
-                        call explicitMidpoint(dtime, nsteps, mu_1, mu_2, r_cm, r_rel)
-                     case(3)
-                        call implicitTrapezoidal(dtime, nsteps, mu_1, mu_2, r_cm, r_rel) 
-                     end select
-                     
-                     ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
-                     box%particle(p)%position = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
-                     box%particle(p + 1)%position = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
-
                   ! Kishore: One thing that is interesting is that if I print p, I get only odd numbers but not consecutively odd
                   ! So I might get 211, 213, 217. 
                   ! Doesn't this mean that the cross-linkers (species 1) are not in consecutive order?
@@ -1122,7 +1109,10 @@ contains
                ! If no springs (add_springs is false) then just diffuse normally. 
                ! Also doesn't matter the species, if add_springs is false then 
                ! all species diffuse the same. 
-               else if(D > 0 .and. (.not. add_springs)) then
+               ! Donev: Slip odd particles of species 1 only when there are springs (notice this looks at p-1 not p+1)
+               else if (add_springs .and. (mod(p,2) == 1) .and. ((box%particle(p)%species == 1) .or. (box%particle(p-1)%species == 1))) then
+                  ! Do nothing, since particle was already moved above when p-1 was moved
+               else if(D > 0) then ! Donev: Removed .and. (.not. add_springs) -- this allows to do ordinary SRBD when add_springs is false
                   call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
                   disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
                   box%particle(p)%position = box%particle(p)%position + disp

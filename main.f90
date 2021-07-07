@@ -72,6 +72,10 @@ program main
          timestep = real(nSampleStep*timestep, dp), fileUnit=nameListUnit, fileNamePrefix=TRIM(basename))
 
    end if
+
+   ! We have now read all the namelists   
+   close(nameListUnit)
+
    write(*,*) 'Starting equilibration loop'
    
    ! Skip a number of steps in the beginning

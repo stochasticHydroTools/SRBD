@@ -5,17 +5,15 @@ module DiffusionCLs
     implicit none 
     save
 
-    ! Donev: Give all parameters in namelist sensitive initial values so they can be skipped in the namelist
     integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
-    real(pr)                                        :: kbT = 4.0E-3_pr ! Boltzmann constant in units of ???
+    real(pr)                                        :: kbT = 0.1_pr ! Boltzmann constant in units of micrometers
     real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
-    real(pr)                                        :: mu_1_0, mu_2_0, tau ! Computed values
-    integer                                         :: sde_integrator_enum=3      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
+    real(pr)                                        :: mu_1_0, mu_2_0, tau_s, tau_r ! Computed values
+    integer                                         :: sde_integrator_enum=3 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
     character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
-    logical                                         :: evolve_r_cm=.true.
+    logical                                         :: evolve_r_cm = .true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr)
     
-    ! Donev
     ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
     ! This is done so that minimal changes are made to DoiBoxModule and most changes are here
     integer :: n_dimers = 10 ! How many dimers to start with; if add_springs=.false. this is number of monomers
@@ -26,7 +24,6 @@ module DiffusionCLs
 
     contains 
 
-        ! Donev: I made it so that this does not read the namelist, but only initializes, to be consistent with what is done in DoiBoxModule.f90
         ! Reads the namelist and open files and allocate arrays (we may need extra arrays to
         ! keep track of reactions ourselves)
         subroutine initializeCLs(nml_unit)
@@ -38,7 +35,8 @@ module DiffusionCLs
             mu_1_0 = 1.0_pr / (6 * pi * visc * a_1)
             mu_2_0 = 1.0_pr / (6 * pi * visc * a_2)
             
-            tau = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))
+            tau_s = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
+            tau_r = l0 * l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale
 
         end subroutine
         

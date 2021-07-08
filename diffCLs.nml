@@ -1,11 +1,13 @@
 &diffCLs
-  k_s = 1000.0,
+  k_s = 10.0,
   l0 = 0.5,
   a_1 = 0.01,
   a_2 = 0.01,
   visc = 1.0,
   sde_integrator_enum = 3,
   evolve_r_cm = .true.,
-  add_springs = .true.
+  add_springs = .true.,
+  n_dimers = 10,
+  n_fiber_blobs = 10
 /
 &END

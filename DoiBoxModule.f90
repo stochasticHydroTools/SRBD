@@ -7,8 +7,15 @@ module DoiBoxModule
    save
    
    ! Change for different reaction schemes and recompile:
+   integer, parameter :: nSpecies = 4, nReactions = 2 ! 1=free CL end, 2=unbound fiber bead, 3=bound CL end, 4=bound fiber bead
+      ! If we want species 1 to convert to species 2 only, we have to use CATALYST reaction, and then we can add
+      ! Binding reaction: 1+2->3+2 ! Catalyst
+      ! If we want to block off location where binding happened from further binding, we can add a very fast reaction
+      ! Blocking reaction: 3+2->3+4 ! Catalyst
+      ! For now we do not add any reverse reactions (unbinding)
+      
    !integer, parameter :: nSpecies = 3, nReactions = 7 ! BPM model
-   integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME Kishore: For our purposes is it enough to change nSpecies = 4?
+   !integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->B, 0->A equilibrium (from Radek Erban)
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->0, A+A->0, rate test in IRDME
    !integer, parameter :: nSpecies = 3, nReactions = 4 ! 0->A, A->0, A+B->0, A+A->0, test if selection is uniform for each cell/particle/pair
@@ -63,10 +70,10 @@ module DoiBoxModule
    !integer, parameter :: wp = sp ! Single precision
    
    ! Choose dimensionality:
-   integer, parameter :: nDimensions = 3 ! 1D, 2D and 3D work but remember to change lines below also
+   integer, parameter :: nDimensions = 3 ! 1D, 2D and 3D work but remember to CHANGE LINES BELOW also
    !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/3, 1, 0, 0/) ! 1D
-   integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
-   !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/27, 1, 1, 1/) ! 3D
+   !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
+   integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/27, 1, 1, 1/) ! 3D
    
    ! IMPORTANT: Turn off assertions and tracing/testing for getting optimized code!
    !logical, parameter :: isAssertsOn =.true., printDebug=.true. ! Debug
@@ -413,7 +420,7 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    real(wp) :: random(nMaxDimensions)
    
    ! Initialize without bound dimers:
-   box%nParticles (specie) = 0
+   box%nParticles (:) = 0 ! No particles of any other species except unbound particles
    if(nSpecies<2) stop 'This SRBD code assumes species 1 = actin binding domains/CL ends, and 2 = actin fiber blobs'
    if(add_springs) then ! CLs are dimers
       box%nParticles(1) = 2*n_dimers
@@ -455,7 +462,7 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
 
    ! Donev/Kishore: Initialize dimers and actin fibers
    ! Now actually initialize the domain with particles
-   ! DONEV
+   ! DONEV (easy to find marker in code)
    do iParticle = 1, n_dimers
       call UniformRNGVec (random, nMaxDimensions)
       if(add_springs) then ! Insert a dimer at a random location and with random orientation
@@ -475,8 +482,8 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    do blob=1, n_fiber_blobs
       iParticle=box%nParticles(1)+blob
       ! Donev: For now I put the fiber in middle of box along y/z
-      box%particle(iParticle)%position(1) = (blob-n_fiber_blobs/2)*domainLength(1) + domainLength(1)/2
-      box%particle(iParticle)%position(2:nMaxDimensions) = domainLength(2:nMaxDimensions)/2
+      box%particle(iParticle)%position(1) = real(blob-n_fiber_blobs/2-0.5_wp,wp)/real(n_fiber_blobs+1,wp)*domainLength(1) + 0.5_wp*domainLength(1)
+      box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
       ! Donev: This aligns the fiber blobs one by one along the x axis
       box%particle(iParticle)%species = 2     
    end do
@@ -795,7 +802,7 @@ subroutine updateDoiBox(box,timestep)
 
    if (strangSplitting) then
       call mover(box,0.5_wp*timestep,randomShiftDist)
-      ! call cleanParticles(box) ! Do this now even if not necessary      
+      ! call cleanParticles(box) ! Do this now even if not necessary  
       if (nReactions>0) call reactor(box,timestep)
       call mover(box,0.5_wp*timestep,-randomShiftDist)
       call cleanParticles(box) ! Remove empty spaces
@@ -1100,12 +1107,14 @@ contains
       
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp
-      integer :: p, dim, side, k
+      integer :: p, dim, side, k, n_mobile_particles
       real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
+      logical :: dimer_particle
 
       ! PARALLEL: This is the main loop that can benefit from parallelization
       !    It is a loop over particles, some of which can be no-ops
       !    So it is important here to use cyclic distribution over threads
+      n_mobile_particles=0 ! Donev/Kishore: Count number of still mobile particles
       do p =lbound(box%particle,1),ubound(box%particle,1)
          if (box%particle(p)%species > 0) then
             D = speciesDiffusivity(box%particle(p)%species)
@@ -1156,8 +1165,23 @@ contains
                ! So what matters is that EITHER the p+1th or the pth species are of the CL species
                ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
                ! Also only look at odd cases, since otherwise we would double count.
-               ! Donev: Just to amke it clearer, please use parenthesis when constructing composite logical expressions, as I did in the line that follows:
-               if (add_springs .and. (mod(p,2) == 1) .and. ((box%particle(p)%species == 1) .or. (box%particle(p+1)%species == 1))) then
+               ! Donev: Just to make it clearer, please use parenthesis when constructing composite logical expressions, as I did in the line that follows:
+               ! DONEV - easy to find marker in code
+               write(77,*) p, box%particle(p)%species, box%particle(p)%position ! Donev: temporary debugging
+               
+               dimer_particle=.false.
+               if(add_springs) then
+                  if(box%particle(p)%species == 1) dimer_particle=.true.
+                  if((p<ubound(box%particle,1)) .and. (mod(p,2) == 1)) then
+                     if(box%particle(p+1)%species == 1) dimer_particle=.true.
+                  end if
+                  if((p>lbound(box%particle,1)) .and. (mod(p,2) == 0)) then
+                     if(box%particle(p-1)%species == 1) dimer_particle=.true.
+                  end if
+               end if   
+               
+               if (dimer_particle .and. (mod(p,2) == 1)) then
+                  n_mobile_particles = n_mobile_particles + 1 
 
                   ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
                   if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
@@ -1179,6 +1203,7 @@ contains
                   end if
                   
                   ! Donev: I moved this code inside DiffusionCL.f90, to not polute this code with too much CL stuff and simplify it
+                  write(*,*) "Moving dimer made of particles ", p, p+1
                   call moveDimer(dtime, 1, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
                                     
                   ! Kishore: One thing that is interesting is that if I print p, I get only odd numbers but not consecutively odd
@@ -1193,16 +1218,17 @@ contains
                   !   close(myunit1)
                   !end if
 
-               ! If no springs (add_springs is false) then just diffuse normally. 
-               ! Also doesn't matter the species, if add_springs is false then 
-               ! all species diffuse the same. 
-               ! Donev: Slip odd particles of species 1 only when there are springs (notice this looks at p-1 not p+1)
-               else if (add_springs .and. (mod(p,2) == 1) .and. ((box%particle(p)%species == 1) .or. (box%particle(p-1)%species == 1))) then
+               else if (dimer_particle .and. (mod(p,2) == 0)) then
                   ! Do nothing, since particle was already moved above when p-1 was moved
+                  n_mobile_particles = n_mobile_particles + 1 
+                  
+               ! If no springs (add_springs is false) then just diffuse normally all species 
                else if(D > 0) then ! Donev: Removed .and. (.not. add_springs) -- this allows to do ordinary SRBD when add_springs is false
+                  write(*,*) "Moving particle ", p
                   call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
                   disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
                   box%particle(p)%position = box%particle(p)%position + disp
+                  n_mobile_particles = n_mobile_particles + 1 
                end if
 
                ! In all 'else' cases, we would do nothing. (D < 0 makes no sense, and D = 0 is immobile)
@@ -1215,6 +1241,10 @@ contains
             
          end if
       end do
+      write(77,*) ! blank line
+      
+      if(n_mobile_particles==0) stop "No more mobile particles left" ! Donev/Kishore
+      
    end subroutine brownianMover
 
    ! Kishore: This is just what we used before, (havent touched this)

@@ -59,6 +59,7 @@ program main
    write(*,*) 'nSampleCells=', nSampleCells(1:)
 
    call initializeDoiBox(box)
+   write(*,*) "initial x=", box%particle(:)%position(1)
 
    timestep=inputTimestep
    
@@ -89,10 +90,11 @@ program main
                
       if (nOutputStep > 0) then
       if (Mod(iStep, nOutputStep) == 0) then ! Output some values to screen
+      
       ! Donev TODO: Open a file with a proper file name and write to it instead of fort.21 here (see DSMC code for example)
-      if(.true.) then ! Output minimal stuff to minimize size of files
+      if(.false.) then ! Output minimal stuff to minimize size of files
          write(9,*) box%globalTime, box%nParticles(1)/domainVolume ! Only first species is enough for stuff like A+B<->C due to conservation laws
-      else   
+      else if(.false.) then
          write(9,*) box%globalTime, box%nParticles(1:)/domainVolume ! Average number density       
          write(21,*) box%globalTime, box%nParticles ! Total number of particles
          write(22,*) box%globalTime, box%reactionCount(1:totalReactions) ! Donev: also write total number of reactions up to this time in a file 

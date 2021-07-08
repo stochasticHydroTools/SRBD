@@ -6,32 +6,106 @@ module DiffusionCLs
     save
 
     integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
-    real(pr)                                        :: kbT = 1.0_pr
-    real(pr)                                        :: a_1, a_2, visc, k_s
-    real(pr), private                               :: mu_eff, l0          ! These all either defined in terms of existing quantities, or not liekly to be changed
-    integer                                         :: sde_integrator_enum      != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
-    integer, private                                :: myunit1
-    character(len = 128), private                   :: nml_file = "diffCLs.nml"
-    logical, parameter                              :: evolve_r_cm = .true.
+    real(pr)                                        :: kbT = 0.1_pr ! Boltzmann constant in units of micrometers
+    real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
+    real(pr)                                        :: mu_1_0, mu_2_0, tau_s, tau_r ! Computed values
+    integer                                         :: sde_integrator_enum=3 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
+    character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
+    logical                                         :: evolve_r_cm = .true.
+    real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr)
+    
+    ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
+    ! This is done so that minimal changes are made to DoiBoxModule and most changes are here
+    integer :: n_dimers = 10 ! How many dimers to start with; if add_springs=.false. this is number of monomers
+    integer :: n_fiber_blobs = 10 ! How many particles composing the fibers
+    logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
 
-
-    private                                         :: read_namelist
+    private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint
 
     contains 
 
         ! Reads the namelist and open files and allocate arrays (we may need extra arrays to
         ! keep track of reactions ourselves)
-        subroutine initializeCLs()
+        subroutine initializeCLs(nml_unit)
+            integer, intent(in), optional :: nml_unit ! Read namelist from open file if passed in
 
             ! Will read namelist and put in all values.
             ! Other things, like filenames to write to are not included, because this is oly needed in
-            ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.
-            call read_namelist(nml_file)
-
-
+            ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.            
+            mu_1_0 = 1.0_pr / (6 * pi * visc * a_1)
+            mu_2_0 = 1.0_pr / (6 * pi * visc * 0.02_pr)
+            
+            tau_s = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
+            tau_r = l0 * l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale
 
         end subroutine
+        
 
+        ! Subroutine to read in the data from a namelist file. 
+        subroutine readCLParameters(nml_unit)
+            integer,  intent(in), optional  :: nml_unit
+            integer                         :: unit, check
+
+            ! Namelist definition.
+            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
+                               add_springs, n_dimers, n_fiber_blobs
+            
+            if(present(nml_unit)) then
+               unit=nml_unit
+            else ! Open the file to read namelist from
+
+               ! Check whether file exists.
+               inquire (file=nml_file, iostat=check)
+
+               ! Here we have some checks, this just makes sure that the file is around. 
+               if (check /= 0) then
+                   write (stderr, '(3a)') 'Error: The file "', trim(nml_file), '" does not exist.'
+                   return
+               end if
+
+               ! Open and read Namelist file.
+               open (action='read', file=nml_file, iostat=check, newunit=unit)
+            end if
+            
+            ! Donev: I am not sure using iostat is the best option -- you want the code to abort with a useful error message
+            ! I would delete iostat=check here   
+            read (nml=diffCLs, iostat=check, unit=unit)
+
+            ! This is to keep people aware of cases like : End of File runtime errors.
+            if (check /= 0) then
+                write (stderr, '(a)') 'Error: invalid Namelist format.'
+                print *, check
+            end if
+
+            close (unit)
+        end subroutine
+
+
+        subroutine moveDimer(dt, nsteps, mu_1, mu_2, r_1, r_2)
+            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            integer, intent(in)                         :: nsteps          
+            real(pr), dimension(dim), intent(inout)     :: r_1, r_2
+
+            real(pr), dimension(dim) :: r_cm, r_rel
+            
+            r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
+            r_rel = r_1 - r_2
+
+            select case(sde_integrator_enum)
+            case(1)
+               call eulerMaruyama(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
+            case(2)
+               call explicitMidpoint(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
+            case(3)
+               call implicitTrapezoidal(dt, nsteps, mu_1, mu_2, r_cm, r_rel) 
+            end select
+
+            ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
+            r_1 = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+            r_2 = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+        
+        end subroutine
+         
         subroutine eulerMaruyama(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
             real(pr), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps          
@@ -39,7 +113,7 @@ module DiffusionCLs
             
             ! Local variables           
             real(pr), dimension(dim)                    :: disp1, disp2
-            real(pr)                                    :: l12, sdev_cm, sdev_rel, D_rel, D_cm
+            real(pr)                                    :: l12, sdev_cm, sdev_rel, D_rel, D_cm, mu_eff
             integer                                     :: i
 
             ! Since we pass mu_1, mu_2, we must now calculate these quantities here.
@@ -80,13 +154,12 @@ module DiffusionCLs
 
             ! Local Variables
             real(pr), dimension(dim)                    :: disp1, disp2, r_rel_pred
-            real(pr)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, D_cm, D_rel
+            real(pr)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, D_cm, D_rel, mu_eff
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2            ! Effective Mobility for r_rel
             D_rel = kbT * mu_eff
             D_cm = kbT * mu_1 * mu_2 / (mu_eff)
-
 
             ! Implicit Trapezoidal loop
             do i = 1, nsteps
@@ -124,8 +197,6 @@ module DiffusionCLs
 
             end do
 
-
-
         end subroutine
     
         ! Explicit midpoint integrator as detailed in "Multiscale Temporal Integrators 
@@ -140,7 +211,7 @@ module DiffusionCLs
 
             ! Local Variables
             real(pr), dimension(dim)                    :: disp1, disp2, disp3, r_rel_pred
-            real(pr)                                    :: l12, sdev_cm, sdev_d, D_rel, D_cm
+            real(pr)                                    :: l12, sdev_cm, sdev_d, D_rel, D_cm, mu_eff
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2                            ! Effective Mobility for r_rel
@@ -175,41 +246,7 @@ module DiffusionCLs
 
             end do
 
-
-
-        end subroutine 
-        
-        
-        ! Subroutine to read in the data from a namelist file. 
-        subroutine read_namelist(file_path)
-            character(len=*),  intent(in)  :: file_path
-            integer                        :: unit, check
-
-            ! Namelist definition.
-            namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum
-
-            ! Check whether file exists.
-            inquire (file=file_path, iostat=check)
-
-            ! Here we have some checks, this just makes sure that the file is around. 
-            if (check /= 0) then
-                write (stderr, '(3a)') 'Error: The file "', trim(file_path), '" does not exist.'
-                return
-            end if
-
-            ! Open and read Namelist file.
-            open (action='read', file=file_path, iostat=check, newunit=unit)
-            read (nml=diffCLs, iostat=check, unit=unit)
-
-            ! This is to keep people aware of cases like : End of File runtime errors.
-            if (check /= 0) then
-                write (stderr, '(a)') 'Error: invalid Namelist format.'
-                print *, check
-            end if
-
-            close (unit)
-        end subroutine read_namelist
-
+        end subroutine                
 
 
 end module

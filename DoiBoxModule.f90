@@ -1,4 +1,4 @@
-! Note: Reservoirs are not really working at present, only periodic BCs are working
+ ! Note: Reservoirs are not really working at present, only periodic BCs are working
 module DoiBoxModule
    use MinHeapModule
    use BoxLibRNGs ! Random number generation
@@ -415,9 +415,10 @@ end subroutine createDoiBox
 ! This way we keep the real code for actin binding stuff outside of this module as much as possible
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
-
-   integer :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
-   real(wp) :: random(nMaxDimensions)
+   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
+   real(wp)                            :: random(nMaxDimensions)
+   real(wp), dimension(nMaxDimensions) :: orientationVector(nMaxDimensions)
+   real(wp), dimension(1)              :: lengthRand
    
    ! Initialize without bound dimers:
    box%nParticles (:) = 0 ! No particles of any other species except unbound particles
@@ -466,11 +467,27 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    do iParticle = 1, n_dimers
       call UniformRNGVec (random, nMaxDimensions)
       if(add_springs) then ! Insert a dimer at a random location and with random orientation
+         ! Start by uniformly sampling the ODD particle dimer, then set the other end of dimer equal to that
          box%particle(2*iParticle-1)%position = random*domainLength
-         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position
+
+         !KISHORE: Adding random orientation, and sampled length as well.
+         ! Random orientation
+         call NormalRNGVec(numbers = orientationVector, n_numbers = nMaxDimensions) ! Mean zero and variance one
+         orientationVector = orientationVector / norm2(orientationVector)  
+
+         ! Random length
+         call NormalRNGVec(numbers = lengthRand, n_numbers = 1) ! Mean Zero, Variance 1
+         lengthRand = l0 * l0 * sqrt(kbT / k_s) * lengthRand + l0   ! Mean l0, variance of gibbs * l0^2
+
+         !box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position
          ! Donev: This initializes all dimers to be aligned with the x axis and have length of l0 (should be fixed later)
-         box%particle(2*iParticle)%position(1) = box%particle(2*iParticle)%position(1) + l0
+         ! Add l0 so that the distance is l0, but now only seperates with same orientation. 
+         ! Kishore: Added random orientation and length, but on average will be l0 length.
+         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + orientationVector*lengthRand(1)
+
+         !box%particle(2*iParticle)%position(1) = box%particle(2*iParticle)%position(1) + l0
          
+         ! Set both species to be 1. 
          box%particle(2*iParticle-1)%species = 1
          box%particle(2*iParticle)%species = 1
          
@@ -480,7 +497,7 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
       end if   
    end do
    do blob=1, n_fiber_blobs
-      iParticle=box%nParticles(1)+blob
+      iParticle=box%nParticles(1)+blob  ! Kishore: So first 2*nDimers are species 1, then the next 2*nDimers + n_fiber_blobs are species 2
       ! Donev: For now I put the fiber in middle of box along y/z
       box%particle(iParticle)%position(1) = real(blob-n_fiber_blobs/2-0.5_wp,wp)/real(n_fiber_blobs+1,wp)*domainLength(1) + 0.5_wp*domainLength(1)
       box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
@@ -1101,14 +1118,12 @@ contains
 
    subroutine brownianMover(box,dtime)
       type (DoiBox), target :: box
-      real (wp), intent(in) :: dtime         ! Kishore: Should I be assuming that this dt is already a 
-      ! function of tau (eg. 0.01 * tau)?
-      ! Donev: This is whatever it is, you don't control it here (it is set in main, and you don't worry about how it relates to tau (user responsibility))
-      
+      real (wp), intent(in) :: dtime         
+
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp
       integer :: p, dim, side, k, n_mobile_particles
-      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
+      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2, nsteps
       logical :: dimer_particle
 
       ! PARALLEL: This is the main loop that can benefit from parallelization
@@ -1156,18 +1171,17 @@ contains
                      
             else ! Continuous random walk  
                      
-               ! Kishore: If we have encountered a cross-linker (species 1) and we are odd, then we will diffuse the odd-even PAIR together
-               ! What this means is that I must do nothing if p is even. 
-               ! Case where we have a dimer that has not bound actin
 
                ! Cross linkers must come in pairs, but one could be attached to actin (seperate species)
                ! In this case, we would still want to simulate as a spring in some cases. 
                ! So what matters is that EITHER the p+1th or the pth species are of the CL species
                ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
                ! Also only look at odd cases, since otherwise we would double count.
-               ! Donev: Just to make it clearer, please use parenthesis when constructing composite logical expressions, as I did in the line that follows:
                ! DONEV - easy to find marker in code
-               write(77,*) p, box%particle(p)%species, box%particle(p)%position ! Donev: temporary debugging
+               call outputCLs(p, specie = box%particle(p)%species, x = box%particle(p)%position(1), &
+               y = box%particle(p)%position(2), z = box%particle(p)%position(3))
+               !write(77,*) p, box%particle(p)%species, box%particle(p)%position ! Donev: temporary debugging
+
                
                dimer_particle=.false.
                if(add_springs) then
@@ -1202,21 +1216,10 @@ contains
                
                   end if
                   
-                  ! Donev: I moved this code inside DiffusionCL.f90, to not polute this code with too much CL stuff and simplify it
                   write(*,*) "Moving dimer made of particles ", p, p+1
-                  call moveDimer(dtime, 1, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
+                  nsteps = nsteps_CLs
+                  call moveDimer(dtime, nsteps, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
                                     
-                  ! Kishore: One thing that is interesting is that if I print p, I get only odd numbers but not consecutively odd
-                  ! So I might get 211, 213, 217. 
-                  ! Doesn't this mean that the cross-linkers (species 1) are not in consecutive order?
-                  !print *, p
-
-                  ! Output tests for debugging purposes:
-                  !if (p == 3) then
-                  !   open(newunit = myunit1, file = 'output.txt')
-                  !      write(myunit1,*) box%particle(p)%position, box%particle(p + 1)%position
-                  !   close(myunit1)
-                  !end if
 
                else if (dimer_particle .and. (mod(p,2) == 0)) then
                   ! Do nothing, since particle was already moved above when p-1 was moved

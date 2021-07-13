@@ -6,10 +6,11 @@ module DiffusionCLs
     save
 
     integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
-    real(pr)                                        :: kbT = 0.1_pr ! Boltzmann constant in units of pN * um 
+    real(pr)                                        :: kbT = 4.0E-3_pr ! Boltzmann constant in units of pN * um 
     real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
     real(pr)                                        :: mu_1_0, mu_2_0, tau_s, tau_r ! Computed values
-    integer                                         :: sde_integrator_enum=3 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
+    integer                                         :: sde_integrator_enum=3, nsteps_CLs = 1 !sde_integrator_enum = 
+    !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
     character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
     logical                                         :: evolve_r_cm = .true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr) !1.0_pr/6.0_pr ! Donev: TEMPORARY, set 6*pi=1, 4.0_pr*ATAN(1.0_pr)
@@ -39,8 +40,16 @@ module DiffusionCLs
             tau_r = l0 * l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale
 
         end subroutine
-        
 
+        ! Assuming 3D. 
+        subroutine outputCLs(particle, specie, x, y, z)
+            real(pr), intent(in)                    :: x, y, z 
+            integer, intent(in)                     :: particle, specie
+
+            write(77,*) particle, specie, x, y, z 
+            
+        end subroutine
+        
         ! Subroutine to read in the data from a namelist file. 
         subroutine readCLParameters(nml_unit)
             integer,  intent(in), optional  :: nml_unit
@@ -48,7 +57,7 @@ module DiffusionCLs
 
             ! Namelist definition.
             namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
-                               add_springs, n_dimers, n_fiber_blobs
+                               add_springs, n_dimers, n_fiber_blobs, nsteps_CLs
             
             if(present(nml_unit)) then
                unit=nml_unit

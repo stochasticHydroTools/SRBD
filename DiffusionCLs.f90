@@ -9,8 +9,9 @@ module DiffusionCLs
     real(pr)                                        :: kbT = 4.0E-3_pr ! Boltzmann constant in units of pN * um 
     real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
     real(pr)                                        :: mu_1_0, mu_2_0, tau_s, tau_r ! Computed values
-    integer                                         :: sde_integrator_enum=3, nsteps_CLs = 1 !sde_integrator_enum = 
+    integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal
+    ! Donev: update documentation to add option #4 above. I made the default 4
     character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
     logical                                         :: evolve_r_cm = .true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr) !1.0_pr/6.0_pr ! Donev: TEMPORARY, set 6*pi=1, 4.0_pr*ATAN(1.0_pr)
@@ -42,10 +43,14 @@ module DiffusionCLs
         end subroutine
 
         ! Assuming 3D. 
+        ! Donev: If you are only writing particles one by one, than here you can pass position as an array
+        ! and you do not have to do xyz separately. If you want to pass all particles at once then you do x/y/z
         subroutine outputCLs(particle, specie, x, y, z)
-            real(pr), intent(in)                    :: x, y, z 
+            real(pr), intent(in)                    :: x, y, z ! Donev: Replace by position(dim) and pass box%particle(p)%position as argument
             integer, intent(in)                     :: particle, specie
 
+            ! Donev: Eventually, stop writing to fort.77 and open a file with a good filename yourself and then close it etc.
+            ! There may be multiple files. the fort files are for quick and dirty work
             write(77,*) particle, specie, x, y, z 
             
         end subroutine
@@ -261,7 +266,7 @@ module DiffusionCLs
 
         ! Apply the implicit trapezoidal method to the dl equation and
         ! the Euler-Lie integrator for rotation on the unit sphere, du
-        ! Probably best to think of a better subroutine name
+        ! Probably best to think of a better subroutine name: Donev suggests rotationVibration
         subroutine seperateTimeScales(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
             real(pr), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps
@@ -271,7 +276,7 @@ module DiffusionCLs
             real(pr), dimension(dim)                    :: u, disp1, disp3, N_hat
             real(pr)                                    :: L_n, mu_eff, D_rel, G, G_pred, theta, sdev_cm, D_cm
             integer                                     :: i
-            real(pr), dimension(1)                      :: disp2, l, l_pred
+            real(pr), dimension(1)                      :: disp2, l, l_pred ! Donev: Change all of these to scalars (see how I did it in DoiBoxModule initialization)
 
             ! Declare variables
             mu_eff = mu_1 + mu_2 
@@ -298,7 +303,7 @@ module DiffusionCLs
                 G = 2 * kbT * mu_eff / l(1) + l0 * mu_eff * k_s ! Must be scalar so choose 1st component
 
                 ! Random variate for the scalar equation dl
-                call NormalRNGVec(numbers = disp2, n_numbers = 1) ! Always a scalar
+                call NormalRNGVec(numbers = disp2, n_numbers = 1) ! Always a scalar ! Donev: Just call NormalRNG without the Vec piece
                 disp2 = sqrt(2 * D_rel * dt) * disp2
 
                 ! Predictor
@@ -307,6 +312,11 @@ module DiffusionCLs
 
                 ! Corrector
                 G_pred = 2 * kbT * mu_eff / l_pred(1) + l0 * mu_eff * k_s
+                ! Donev: Need to compare
+                ! 0.5_pr * dt * (G + G_pred)
+                ! to
+                ! g(1/2*(x^n+x_pred))
+                ! best to distinguish sde_integrator_enum=4 and sde_integrator_enum=5 as two options
                 l = l + 0.5_pr * dt * (L_n * l) + 0.5_pr * dt * (G + G_pred) + disp2
                 l = l / (1 - dt * L_n / 2)
 
@@ -321,6 +331,11 @@ module DiffusionCLs
 
             r_rel = u * l(1) 
             
+            ! Donev: Suggest putting here a "contains" and defining a function (not subroutine) called explicit_term
+            ! that simply evaluates 2 * kbT * mu_eff / l + l0 * mu_eff * k_s
+            ! so that you don't repeat this same expression 4 times (error prone)
+            ! this function will be a helper routine only used here
+            
         end subroutine
 
         subroutine rotate(u, theta, N)
@@ -334,7 +349,7 @@ module DiffusionCLs
         end subroutine
 
         ! Cross product is well-defined in the 3D case so built own function assuming 3D. 
-        ! No intrinsic fortran routine I could find
+        ! No intrinsic fortran routine I could find ! Donev: not built into Fortran
         function cross(a, b)
             real(pr), dimension(3) :: cross
             real(pr), dimension(3), intent(in) :: a, b

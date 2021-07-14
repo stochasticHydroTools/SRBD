@@ -2832,6 +2832,7 @@ subroutine getNewPosition(box,n,p,length)
    integer :: iDimension
 
    reactiveRadius = 0.5_wp * length
+   print *, "THIS IS THE REACTIVE RADIUS:", reactiveRadius
    ! To generate a point uniformly inside a sphere of unit diameter we use rejection from a point inside a unit square
    GeneratingPosition: do
       call UniformRNGVec(r,nDimensions)

@@ -14,7 +14,7 @@ program main
    
    ! Local variables
    integer :: nameListUnit
-   integer :: iStep, particle, species
+   integer :: iStep, particle, species, p
    real (wp) :: timestep
 
    character(LEN=1024) :: basename="" ! Base of filename used for reading/writing files
@@ -80,6 +80,7 @@ program main
    write(*,*) 'Starting equilibration loop'
    
    ! Skip a number of steps in the beginning
+   ! KISHORE: What does this do? Am confused by this loop. Why is it negative time steps
    do iStep = -nEquilibrationStep, -1 ! Count these as negative time steps
       call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
    end do
@@ -128,7 +129,18 @@ program main
       end if
 
       ! Move to the next point in time:     
-      if(iStep<nSteps) call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
+      if(iStep<nSteps) then
+         call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
+         if (debug_CLs .and. mod(iStep,2) == 1) then
+            do p = lbound(box%particle,1), ubound(box%particle,1)
+               call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
+            end do
+         end if
+         ! Kishore: Only look at every other time step for efficiency (this was arbitrary)
+         ! Donev: It will be wasteful on disk space here to write the positions of all the fiber blobs every time step
+         ! especially since they are not moving. So inside outputCLs perhaps you should only write particles of species not 2?
+         ! KISHORE: The reason I am writing the blobs as well is because I want to be able to track when they change species
+      end if
        
    end do
    write(*,*) 'Completed time loop'

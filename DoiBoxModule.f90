@@ -417,9 +417,6 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
    integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
    real(wp)                            :: random(nMaxDimensions)
-   ! Donev: Move this to diffusionCLs (see below)
-   real(wp), dimension(nDimensions)    :: orientationVector ! Donev: Either specify dimension or put dimension after declaration, NOT both. I changed to nDimensions
-   real(wp)                            :: lengthRand ! Donev: This should be a scalar but a dimension(1) array? Changed
    
    ! Initialize without bound dimers:
    box%nParticles (:) = 0 ! No particles of any other species except unbound particles
@@ -471,30 +468,14 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
          ! Start by uniformly sampling the ODD particle dimer, then set the other end of dimer equal to that
          box%particle(2*iParticle-1)%position = random*domainLength
          
-         
          ! Donev: This code below should be moved to DiffusionCLs
          ! Remember that the goal is to keep the changes to DoiBoxModule minimal
          ! This code should know as little as possible about stuff like kbT, k_s, etc.
          ! So create a routine like RandomDimer to DiffusionCLs that computes lengthRand and orientationVector
          ! or returns lengthRand*orientationVector
-         !KISHORE: Adding random orientation, and sampled length as well.
-         ! Random orientation
-         ! Donev: Changed here to use nDimensions not nMaxDimensions (for you they are the same)
-         call NormalRNGVec(numbers = orientationVector, n_numbers = nDimensions) ! Mean zero and variance one
-         orientationVector = orientationVector / norm2(orientationVector)  
 
-         ! Random length
-         call NormalRNG(lengthRand) ! Mean Zero, Variance 1 ! Donev: Fixed to generate a scalar
-         lengthRand = l0 * l0 * sqrt(kbT / k_s) * lengthRand + l0   ! Mean l0, variance of gibbs * l0^2
-
-         ! Donev: Remove old code
-         !box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position
-         ! Donev: This initializes all dimers to be aligned with the x axis and have length of l0 (should be fixed later)
-         ! Add l0 so that the distance is l0, but now only seperates with same orientation. 
          ! Kishore: Added random orientation and length, but on average will be l0 length.
-         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + orientationVector*lengthRand
-
-         !box%particle(2*iParticle)%position(1) = box%particle(2*iParticle)%position(1) + l0 ! Donev: Remove old code to keep clean
+         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + randomDimer()
          
          ! Set both species to be 1. 
          box%particle(2*iParticle-1)%species = 1
@@ -1131,8 +1112,8 @@ contains
 
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp
-      integer :: p, dim, side, k, n_mobile_particles
-      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2, nsteps
+      integer :: p, dim, side, k, n_mobile_particles, nsteps
+      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
       logical :: dimer_particle
 
       ! PARALLEL: This is the main loop that can benefit from parallelization
@@ -1186,16 +1167,14 @@ contains
                ! So what matters is that EITHER the p+1th or the pth species are of the CL species
                ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
                ! Also only look at odd cases, since otherwise we would double count.
-               ! DONEV - easy to find marker in code
+
                ! Donev: This stuff should be called from main.f90, not here
                ! this way you can write not every time step but every so many time steps
-               ! You can pass here position=box%particle(p)%position(:) instead of x/y/z separately
-               call outputCLs(p, specie = box%particle(p)%species, x = box%particle(p)%position(1), &
-               y = box%particle(p)%position(2), z = box%particle(p)%position(3))
-               !write(77,*) p, box%particle(p)%species, box%particle(p)%position ! Donev: temporary debugging
+               !call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
                ! Donev: It will be wasteful on disk space here to write the positions of all the fiber blobs every time step
                ! especially since they are not moving. So inside outputCLs perhaps you should only write particles of species not 2?
-
+               ! KISHORE: The reason I am writing the blobs as well is because I want to be able to track when they change species
+               
                
                dimer_particle=.false.
                if(add_springs) then
@@ -1231,10 +1210,8 @@ contains
                   end if
                   
                   nsteps = nsteps_CLs
-                  ! Donev: Important fix: here the time interval is dtime/nsteps not dtime!
-                  ! Donev: Eventually clean up all this writing stuff so it does not print junk to screen and you can do long runs
-                  ! or add if(debug_CLs) flag to namelist
-                  write(*,*) "Moving dimer made of particles ", p, p+1, " with dt=", dtime/nsteps
+
+                  if (debug_CLs) write(*,*) "Moving dimer made of particles ", p, p+1, " with dt=", dtime/nsteps
                   call moveDimer(dtime/nsteps, nsteps, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
                                     
 
@@ -1243,9 +1220,8 @@ contains
                   n_mobile_particles = n_mobile_particles + 1 
                   
                ! If no springs (add_springs is false) then just diffuse normally all species 
-               ! Donev: Remove old comments from me marked Donev once you read them and they are resolved or reword them if they should stay in code
-               else if(D > 0) then ! Donev: Removed .and. (.not. add_springs) -- this allows to do ordinary SRBD when add_springs is false
-                  write(*,*) "Moving particle ", p ! Donev: Remove this sort of unnecessary output after debugging or add if(debug_CLs) flag to namelist
+               else if(D > 0) then 
+                  if (debug_CLs) write(*,*) "Moving particle ", p 
                   call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
                   disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
                   box%particle(p)%position = box%particle(p)%position + disp

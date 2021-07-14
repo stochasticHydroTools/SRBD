@@ -298,7 +298,7 @@ module DiffusionCLs
                 !G = 2 * kbT * mu_eff / l + l0 * mu_eff * k_s ! Must be scalar so choose 1st component
 
                 ! Random variate for the scalar equation dl
-                call NormalRNG(disp2) ! Always a scalar ! Donev: Just call NormalRNG without the Vec piece
+                call NormalRNG(disp2) ! Always a scalar 
                 disp2 = sqrt(2 * D_rel * dt) * disp2
 
                 ! Predictor
@@ -327,10 +327,6 @@ module DiffusionCLs
 
             r_rel = u * l
             
-            ! Donev: Suggest putting here a "contains" and defining a function (not subroutine) called explicitTerm
-            ! that simply evaluates 2 * kbT * mu_eff / l + l0 * mu_eff * k_s
-            ! so that you don't repeat this same expression 4 times (error prone)
-            ! this function will be a helper routine only used here
             contains 
 
             function explicitTerm(l)
@@ -370,7 +366,7 @@ module DiffusionCLs
             orientationVector = orientationVector / norm2(orientationVector)  
    
             ! Random length
-            call NormalRNG(lengthRand) ! Mean Zero, Variance 1 ! Donev: Fixed to generate a scalar
+            call NormalRNG(lengthRand) ! Mean Zero, Variance 1 
             lengthRand = l0 * l0 * sqrt(kbT / k_s) * lengthRand + l0   ! Mean l0, variance of gibbs * l0^2
 
             randomDimer = orientationVector * lengthRand

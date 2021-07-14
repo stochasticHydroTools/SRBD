@@ -21,7 +21,7 @@ module DiffusionCLs
     integer :: n_fiber_blobs = 10 ! How many particles composing the fibers
     logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
 
-    private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint
+    private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint, rotationVibration
 
     contains 
 

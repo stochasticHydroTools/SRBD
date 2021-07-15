@@ -12,11 +12,12 @@ module DiffusionCLs
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotation-vibration integrator w/  
     ! 0.5_pr * dt * (G + G_pred), 5: rotationVibration with g(1/2*(x^n+x_pred))
-    character(len = 128)                            :: nml_file = "diffCLs.nml" ! Can be changed to read namelist from different file
+    character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt" 
     logical                                         :: evolve_r_cm = .true., debug_CLs = .true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr) !1.0_pr/6.0_pr ! Donev: TEMPORARY, set 6*pi=1, 4.0_pr*ATAN(1.0_pr)
     ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
     ! This is done so that minimal changes are made to DoiBoxModule and most changes are here
+    integer :: myunit
     integer :: n_dimers = 10 ! How many dimers to start with; if add_springs=.false. this is number of monomers
     integer :: n_fiber_blobs = 10 ! How many particles composing the fibers
     logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
@@ -39,15 +40,19 @@ module DiffusionCLs
             tau_s = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
             tau_r = l0 * l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale
 
+            if (debug_CLs) open(newunit = myunit, file = "DimerSimulation2.txt")
+
+        end subroutine
+
+        subroutine deallocateCLs()
+            if (debug_CLs) close(myunit)
         end subroutine
 
         subroutine outputCLs(particle, specie, position)
             real(pr), dimension(dim), intent(in)    :: position 
             integer, intent(in)                     :: particle, specie
 
-            ! Donev: Eventually, stop writing to fort.77 and open a file with a good filename yourself and then close it etc.
-            ! There may be multiple files. the fort files are for quick and dirty work
-            write(77,*) particle, specie, position
+            if(debug_CLs) write(myunit,*) particle, specie, position
             
         end subroutine
         
@@ -58,7 +63,7 @@ module DiffusionCLs
 
             ! Namelist definition.
             namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
-                               add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs
+                               add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs, blobInitializer 
             
             if(present(nml_unit)) then
                unit=nml_unit

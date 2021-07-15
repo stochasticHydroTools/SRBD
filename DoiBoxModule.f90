@@ -412,7 +412,7 @@ end subroutine createDoiBox
 
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
-   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
+   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob, MYUNIT
    real(wp)                            :: random(nMaxDimensions)
    
    ! Initialize without bound dimers:
@@ -476,16 +476,21 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
          box%particle(iParticle)%species = 1
       end if   
    end do
+   ! Kishore: Want to read in the first n_fiber_blobs from file blobInitializer in nml file.
+   open(newunit = MYUNIT, file = blobInitializer)
    do blob=1, n_fiber_blobs
       iParticle=box%nParticles(1)+blob  ! Kishore: So first 2*nDimers are species 1, then the next 2*nDimers + n_fiber_blobs are species 2
-      ! Donev: For now I put the fiber in middle of box along y/z
-      ! Kishore: The below commented out does not put enough blobs to be periodic.
-      !box%particle(iParticle)%position(1) = real(blob-n_fiber_blobs/2-0.5_wp,wp)/real(n_fiber_blobs+1,wp)*domainLength(1) + 0.5_wp*domainLength(1)
-      box%particle(iParticle)%position(1) = (blob - 1) * domainLength / n_fiber_blobs
-      box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
+      ! Read in from file. 
+      read(MYUNIT, *) box%particle(iParticle)%position(:)
+      !print *, "LOOK HERE", box%particle(iParticle)%position(:) Debugging (delete later)
+      
+      ! KISHORE: Below puts the fiber in middle of box along y/z
+      !box%particle(iParticle)%position(1) = (blob - 1) * domainLength / n_fiber_blobs
+      !box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
       ! Donev: This aligns the fiber blobs one by one along the x axis
       box%particle(iParticle)%species = 2     
    end do
+   close(MYUNIT)
 
    if (reactionScheme==IRDME) then
       call initializeIRDME(box)
@@ -1165,7 +1170,6 @@ contains
                !call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
                ! Donev: It will be wasteful on disk space here to write the positions of all the fiber blobs every time step
                ! especially since they are not moving. So inside outputCLs perhaps you should only write particles of species not 2?
-               ! KISHORE: The reason I am writing the blobs as well is because I want to be able to track when they change species
                
                
                dimer_particle=.false.

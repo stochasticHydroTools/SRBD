@@ -131,7 +131,7 @@ program main
       ! Move to the next point in time:     
       if(iStep<nSteps) then
          call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
-         if (debug_CLs .and. mod(iStep,2) == 1) then
+         if (debug_CLs .and. mod(iStep,2) == 1) then 
             do p = lbound(box%particle,1), ubound(box%particle,1)
                call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
             end do

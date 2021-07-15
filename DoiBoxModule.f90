@@ -410,9 +410,6 @@ subroutine createDoiBox (box, boundaryType, lbSample, ubSample)
          
 end subroutine createDoiBox
 
-! Kishore/Donev: This is an initialization routine specialized to the actin/cross-linker module
-! Ideally, this routine will call routines inside the DiffusionCLs.f90 file to actually do the work
-! This way we keep the real code for actin binding stuff outside of this module as much as possible
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
    integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob
@@ -459,7 +456,6 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    
    write(*,*) "Starting to fill domain with particles"
 
-   ! Donev/Kishore: Initialize dimers and actin fibers
    ! Now actually initialize the domain with particles
    ! DONEV (easy to find marker in code)
    do iParticle = 1, n_dimers
@@ -468,12 +464,6 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
          ! Start by uniformly sampling the ODD particle dimer, then set the other end of dimer equal to that
          box%particle(2*iParticle-1)%position = random*domainLength
          
-         ! Donev: This code below should be moved to DiffusionCLs
-         ! Remember that the goal is to keep the changes to DoiBoxModule minimal
-         ! This code should know as little as possible about stuff like kbT, k_s, etc.
-         ! So create a routine like RandomDimer to DiffusionCLs that computes lengthRand and orientationVector
-         ! or returns lengthRand*orientationVector
-
          ! Kishore: Added random orientation and length, but on average will be l0 length.
          box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + randomDimer()
          
@@ -489,7 +479,9 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    do blob=1, n_fiber_blobs
       iParticle=box%nParticles(1)+blob  ! Kishore: So first 2*nDimers are species 1, then the next 2*nDimers + n_fiber_blobs are species 2
       ! Donev: For now I put the fiber in middle of box along y/z
-      box%particle(iParticle)%position(1) = real(blob-n_fiber_blobs/2-0.5_wp,wp)/real(n_fiber_blobs+1,wp)*domainLength(1) + 0.5_wp*domainLength(1)
+      ! Kishore: The below commented out does not put enough blobs to be periodic.
+      !box%particle(iParticle)%position(1) = real(blob-n_fiber_blobs/2-0.5_wp,wp)/real(n_fiber_blobs+1,wp)*domainLength(1) + 0.5_wp*domainLength(1)
+      box%particle(iParticle)%position(1) = (blob - 1) * domainLength / n_fiber_blobs
       box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
       ! Donev: This aligns the fiber blobs one by one along the x axis
       box%particle(iParticle)%species = 2     
@@ -2832,7 +2824,6 @@ subroutine getNewPosition(box,n,p,length)
    integer :: iDimension
 
    reactiveRadius = 0.5_wp * length
-   print *, "THIS IS THE REACTIVE RADIUS:", reactiveRadius
    ! To generate a point uniformly inside a sphere of unit diameter we use rejection from a point inside a unit square
    GeneratingPosition: do
       call UniformRNGVec(r,nDimensions)

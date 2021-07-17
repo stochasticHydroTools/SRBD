@@ -1109,9 +1109,11 @@ contains
 
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp
-      integer :: p, dim, side, k, n_mobile_particles, nsteps
+      integer :: p, dim, side, k, n_mobile_particles, nsteps, i
       real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
+      real(wp), dimension(nDimensions)    :: r_d
       logical :: dimer_particle
+
 
       ! PARALLEL: This is the main loop that can benefit from parallelization
       !    It is a loop over particles, some of which can be no-ops
@@ -1206,6 +1208,15 @@ contains
                   end if
                   
                   nsteps = nsteps_CLs
+
+                  r_d = box%particle(p)%position - box%particle(p + 1)%position
+
+                  do i = 1, nDimensions
+                     if (r_d(i) > sampleCellLength(i) / 2) r_d(i) = r_d(i) - sampleCellLength(i)
+                     if (r_d(i) < -sampleCellLength(i) / 2) r_d(i) = r_d(i) + sampleCellLength(i)
+                  end do
+
+                  box%particle(p)%position = r_d + box%particle(p + 1)%position    
 
                   if (debug_CLs) write(*,*) "Moving dimer made of particles ", p, p+1, " with dt=", dtime/nsteps
                   call moveDimer(dtime/nsteps, nsteps, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)

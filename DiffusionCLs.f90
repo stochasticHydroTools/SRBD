@@ -98,10 +98,10 @@ module DiffusionCLs
 
         subroutine moveDimer(dt, nsteps, mu_1, mu_2, r_1, r_2)
             real(pr), intent(in)                        :: dt, mu_1, mu_2
-            integer, intent(in)                         :: nsteps          
+            integer, intent(in)                         :: nsteps       
             real(pr), dimension(dim), intent(inout)     :: r_1, r_2
-
             real(pr), dimension(dim) :: r_cm, r_rel
+
             
             r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
             r_rel = r_1 - r_2

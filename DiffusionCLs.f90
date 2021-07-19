@@ -12,7 +12,7 @@ module DiffusionCLs
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotation-vibration integrator w/  
     ! 0.5_pr * dt * (G + G_pred), 5: rotationVibration with g(1/2*(x^n+x_pred))
-    character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt" 
+    character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt", outputFile = "DimerSimulation5.txt" 
     logical                                         :: evolve_r_cm = .true., debug_CLs = .true.
     real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr) !1.0_pr/6.0_pr ! Donev: TEMPORARY, set 6*pi=1, 4.0_pr*ATAN(1.0_pr)
     ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
@@ -30,7 +30,7 @@ module DiffusionCLs
         ! keep track of reactions ourselves)
         subroutine initializeCLs(nml_unit)
             integer, intent(in), optional :: nml_unit ! Read namelist from open file if passed in
-
+            real(pr)        ::  lA
             ! Will read namelist and put in all values.
             ! Other things, like filenames to write to are not included, because this is oly needed in
             ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.            
@@ -38,9 +38,11 @@ module DiffusionCLs
             mu_2_0 = 1.0_pr / (6 * pi * visc * a_2)
             
             tau_s = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
-            tau_r = l0 * l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale
+            !lA = ((l0**4)*k_s*k_s + 6*l0*l0*kbT*k_s+3*kbT*kbT) / (k_s*(k_s*l0*l0 + kbT)) Rotational time scale for non stiff springs (replace l0*l0
+            ! with lA)
+            tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs
 
-            if (debug_CLs) open(newunit = myunit, file = "DimerSimulation2.txt")
+            if (debug_CLs) open(newunit = myunit, file = outputFile)
 
         end subroutine
 
@@ -52,7 +54,7 @@ module DiffusionCLs
             real(pr), dimension(dim), intent(in)    :: position 
             integer, intent(in)                     :: particle, specie
 
-            if(debug_CLs) write(myunit,*) particle, specie, position
+            if(debug_CLs .and. specie /= 2) write(myunit,*) particle, specie, position
             
         end subroutine
         
@@ -63,7 +65,8 @@ module DiffusionCLs
 
             ! Namelist definition.
             namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
-                               add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs, blobInitializer 
+                               add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs, blobInitializer, &
+                               outputFile 
             
             if(present(nml_unit)) then
                unit=nml_unit
@@ -82,15 +85,7 @@ module DiffusionCLs
                open (action='read', file=nml_file, iostat=check, newunit=unit)
             end if
             
-            ! Donev: I am not sure using iostat is the best option -- you want the code to abort with a useful error message
-            ! I would delete iostat=check here   
-            read (nml=diffCLs, iostat=check, unit=unit)
-
-            ! This is to keep people aware of cases like : End of File runtime errors.
-            if (check /= 0) then
-                write (stderr, '(a)') 'Error: invalid Namelist format.'
-                print *, check
-            end if
+            read (nml=diffCLs, unit=unit)
 
             close (unit)
         end subroutine

@@ -23,13 +23,13 @@
    reactionRate(1:2) = 10.0  1000.0 ! Large rate will make it react as soon as it overlaps
    
    inputTimestep=1.0 ! dt for small D 
-   speciesDiameter(1:4) = 0.02 0.008 0.02 0.008 ! Reactive diameters of particles
+   speciesDiameter(1:4) = 0.01 0.008 0.01 0.008 ! Reactive diameters of particles
 
    speciesDiffusivity(1:4) = 1.0 0.0 0.0 0.0 ! The first number if only used if add_spring=false and there are free monomers
    
    
    !---------------------
-   sampleCellLength(1:3) = 2.0 2.0 2.0 ! This is the system size (there is only one sampling cell); must be bigger than 3*dx
+   sampleCellLength(1:3) = 1.0 1.0 1.0 ! This is the system size (there is only one sampling cell); must be bigger than 3*dx
    nBlockingCollision(1:3) = 100 100 100 ! Number of DOI cells per block of sampling cells   
    ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
    ! Remember that dx must be larger than the largest reaction diameter
@@ -53,10 +53,11 @@
   sde_integrator_enum = 4 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration
   add_springs = T ! If false, do monomers for the CLs, not dimers
   debug_CLs = .true.
-  n_dimers = 3
-  n_fiber_blobs = 126
+  n_dimers = 10
+  n_fiber_blobs = 400
   nsteps_CLs = 1
-  blobInitializer = "FibersDiameterApart.txt"
+  blobInitializer = "FibersDiameterApart2.txt"
+  outputFile = "DimerSimulation5.txt"
 /
 &
 

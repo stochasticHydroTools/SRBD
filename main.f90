@@ -131,11 +131,9 @@ program main
       ! Move to the next point in time:     
       if(iStep<nSteps) then
 
-         if (debug_CLs) then 
+         if (debug_CLs .and. mod(iStep,10) == 0) then       ! SAVE ONLY EVERY 10 steps (arbitrary, may want to make this user input)
             do p = lbound(box%particle,1), ubound(box%particle,1)
-               !if (box%particle(p)%species /= 2) then   ! Writing all blobs expensive, and they are nonmoving (for now) so ignore 2
                call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
-               !end if
             end do
          end if
 

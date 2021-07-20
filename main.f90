@@ -59,7 +59,6 @@ program main
    write(*,*) 'nSampleCells=', nSampleCells(1:)
 
    call initializeDoiBox(box)
-   write(*,*) "initial x=", box%particle(:)%position(1)
 
    timestep=inputTimestep
    
@@ -79,8 +78,7 @@ program main
 
    write(*,*) 'Starting equilibration loop'
    
-   ! Skip a number of steps in the beginning
-   ! KISHORE: What does this do? Am confused by this loop. Why is it negative time steps, what is being equilibrated
+   ! Skip a number of steps in the beginning if desired
    do iStep = -nEquilibrationStep, -1 ! Count these as negative time steps
       call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
    end do
@@ -128,20 +126,26 @@ program main
       end if
       end if
 
+      ! Donev/Kishore: Output positions of just CLs
+      if(nOutputCLsStep>0) then
+      if(mod(iStep,nOutputCLsStep) == 0) then
+         write(*,*) iStep, " t=", box%globalTime, " n_particles=", box%nParticles(1:nSpecies), &
+                    " n_reactions=", box%reactionCount(1:totalReactions)
+         call outputCLs(step=iStep, time=box%globalTime) ! Mark beginning of output
+         do p = lbound(box%particle,1), ubound(box%particle,1)
+            call outputCLs(step=iStep, particle=p, specie = box%particle(p)%species, position = box%particle(p)%position)
+         end do
+         call outputCLs(step=0) ! Empty line
+      end if
+      end if
+
       ! Move to the next point in time:     
       if(iStep<nSteps) then
-
-         if (debug_CLs .and. mod(iStep,10) == 0) then       ! SAVE ONLY EVERY 10 steps (arbitrary, may want to make this user input)
-            do p = lbound(box%particle,1), ubound(box%particle,1)
-               call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
-            end do
-         end if
-
          call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
       end if
        
    end do
-   call deallocateCLs()  
+   call destroyCLs()  
    write(*,*) 'Completed time loop'
    write(*,*) 'Total reaction count is ', box%reactionCount(0), "=", box%reactionCount(1:totalReactions)  
    if(IRDME_test) then

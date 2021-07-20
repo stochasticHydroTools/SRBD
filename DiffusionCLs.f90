@@ -1,26 +1,32 @@
 module DiffusionCLs
     use Precision
+    use MinHeapModule
     use BoxLibRNGs
     use, intrinsic :: iso_fortran_env, only: stderr => error_unit       ! This is so I can track errors.
     implicit none 
     save
 
-    integer, parameter, private                     :: pr = r_sp, dim = 3       ! MUST BE CONSISTENT WITH MAIN CODE!!!!
-    real(pr)                                        :: kbT = 4.0E-3_pr ! Boltzmann constant in units of pN * um 
-    real(pr)                                        :: a_1=1.0_pr, a_2=1.0_pr, visc=1.0_pr, k_s=1.0_pr, l0=1.0_pr
-    real(pr)                                        :: mu_1_0, mu_2_0, tau_s, tau_r ! Computed values
+    integer, parameter, private                     :: dim = 3  ! Dimension must be consistent with main code
+    real(wp), parameter, private                    :: pi = 4.0_wp*ATAN(1.0_wp)
+    integer, private :: outputUnit
+
+    real(wp)                                        :: kbT = 4.0E-3_wp ! Boltzmann constant in units of pN * um 
+    real(wp)                                        :: a_1=1.0_wp, a_2=1.0_wp, visc=1.0_wp, k_s=1.0_wp, l0=1.0_wp
+    real(wp)                                        :: mu_1_0, mu_2_0, tau_s, tau_r, tau_d ! Computed values
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotation-vibration integrator w/  
-    ! 0.5_pr * dt * (G + G_pred), 5: rotationVibration with g(1/2*(x^n+x_pred))
-    character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt", outputFile = "DimerSimulation5.txt" 
-    logical                                         :: evolve_r_cm = .true., debug_CLs = .true.
-    real(pr), parameter, private                    :: pi = 4.0_pr*ATAN(1.0_pr) !1.0_pr/6.0_pr ! Donev: TEMPORARY, set 6*pi=1, 4.0_pr*ATAN(1.0_pr)
+    ! 0.5_wp * dt * (G + G_wped), 5: rotationVibration with g(1/2*(x^n+x_wped))
+    character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt", outputFile = "DimerSimulation.txt" 
+    logical                                         :: evolve_r_cm = .true.
+
+    
     ! These parameters are in this module since they are required for SRBD, however, they are not actually used in this module
     ! This is done so that minimal changes are made to DoiBoxModule and most changes are here
-    integer :: myunit
     integer :: n_dimers = 10 ! How many dimers to start with; if add_springs=.false. this is number of monomers
     integer :: n_fiber_blobs = 10 ! How many particles composing the fibers
     logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
+    integer :: nOutputCLsStep=0 ! How often to output positions of CLs to the file outputFile
+    logical :: debug_CLs = .false. ! Whether to print out some more info to screen for testing purposes
 
     private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint, rotationVibration
 
@@ -30,31 +36,60 @@ module DiffusionCLs
         ! keep track of reactions ourselves)
         subroutine initializeCLs(nml_unit)
             integer, intent(in), optional :: nml_unit ! Read namelist from open file if passed in
-            real(pr)        ::  lA
+            
+            real(wp)        ::  lA, D_cm
+            
             ! Will read namelist and put in all values.
             ! Other things, like filenames to write to are not included, because this is oly needed in
             ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.            
-            mu_1_0 = 1.0_pr / (6 * pi * visc * a_1)
-            mu_2_0 = 1.0_pr / (6 * pi * visc * a_2)
+            mu_1_0 = 1.0_wp / (6 * pi * visc * a_1)
+            mu_2_0 = 1.0_wp / (6 * pi * visc * a_2)
             
-            tau_s = 1.0_pr / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
+            D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0)
+            write(*,*) "CLs diffusing with D=", D_cm
+            
+            tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
             !lA = ((l0**4)*k_s*k_s + 6*l0*l0*kbT*k_s+3*kbT*kbT) / (k_s*(k_s*l0*l0 + kbT)) Rotational time scale for non stiff springs (replace l0*l0
             ! with lA)
             tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs
+            tau_d = l0*l0 / D_cm
+            
+            write(*,*) "CLs: tau_s=", tau_s, " tau_r=", tau_r, " tau_d=", tau_d
 
-            if (debug_CLs) open(newunit = myunit, file = outputFile)
+            if (nOutputCLsStep>0) open(newunit = outputUnit, file = outputFile)
 
         end subroutine
 
-        subroutine deallocateCLs()
-            if (debug_CLs) close(myunit)
+        subroutine destroyCLs()
+            if (nOutputCLsStep>0) close(outputUnit)
         end subroutine
 
-        subroutine outputCLs(particle, specie, position)
-            real(pr), dimension(dim), intent(in)    :: position 
-            integer, intent(in)                     :: particle, specie
+        ! Donev: This can output a separate file for each step (now a required argument)
+        ! Or write to one file but in this case you want to somehow know which step/time a given position refers to
+        subroutine outputCLs(step, time, particle, specie, position)
+            integer, intent(in)                               :: step
+            real(wp), intent(in), optional                    :: time
+            ! The rest of these must all be present *together*:
+            integer, intent(in), optional                     :: particle, specie
+            real(wp), dimension(dim), intent(in), optional    :: position 
+            
+            if(nOutputCLsStep<=0) return
+            
+            if(present(particle)) then
 
-            if(debug_CLs .and. specie /= 2) write(myunit,*) particle, specie, position
+               if(specie /= 2) write(outputUnit,*) particle, specie, position
+               
+            else
+            
+               if(step<=0) then
+                  write(outputUnit,*) ! newline
+               else if(present(time)) then
+                  write(outputUnit,*) "# step=", step, " t=", time
+               else
+                  write(outputUnit,*) "# step=", step
+               end if     
+            
+            end if    
             
         end subroutine
         
@@ -66,7 +101,7 @@ module DiffusionCLs
             ! Namelist definition.
             namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
                                add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs, blobInitializer, &
-                               outputFile 
+                               outputFile, nOutputCLsStep
             
             if(present(nml_unit)) then
                unit=nml_unit
@@ -92,10 +127,10 @@ module DiffusionCLs
 
 
         subroutine moveDimer(dt, nsteps, mu_1, mu_2, r_1, r_2)
-            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps       
-            real(pr), dimension(dim), intent(inout)     :: r_1, r_2
-            real(pr), dimension(dim) :: r_cm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_1, r_2
+            real(wp), dimension(dim) :: r_cm, r_rel
 
             
             r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
@@ -119,13 +154,13 @@ module DiffusionCLs
         end subroutine
          
         subroutine eulerMaruyama(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps          
-            real(pr), dimension(dim), intent(inout)     :: r_cm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
             
             ! Local variables           
-            real(pr), dimension(dim)                    :: disp1, disp2
-            real(pr)                                    :: l12, sdev_cm, sdev_rel, D_rel, D_cm, mu_eff
+            real(wp), dimension(dim)                    :: disp1, disp2
+            real(wp)                                    :: l12, sdev_cm, sdev_rel, D_rel, D_cm, mu_eff
             integer                                     :: i
 
             ! Since we pass mu_1, mu_2, we must now calculate these quantities here.
@@ -160,13 +195,13 @@ module DiffusionCLs
         ! x^{p,n+1} = x^n + dt/2 * L * (x^n + x^{p,n+1}) + sqrt(2 D dt) N_1(0,1)
         ! x^{n+1} = x^n + dt/2 * (L(x^n)x^n + L(x^n+1)x^{n+1}) + sqrt(dt 2D)N_1(0,1)
         subroutine implicitTrapezoidal(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps
-            real(pr), dimension(dim), intent(inout)     :: r_cm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(pr), dimension(dim)                    :: disp1, disp2, r_rel_pred
-            real(pr)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, D_cm, D_rel, mu_eff
+            real(wp), dimension(dim)                    :: disp1, disp2, r_rel_wped
+            real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, D_cm, D_rel, mu_eff
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2            ! Effective Mobility for r_rel
@@ -194,14 +229,14 @@ module DiffusionCLs
                 L_n = mu_eff * k_s * (l0 - l12) / l12
 
                 !Predictor Step
-                r_rel_pred = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
-                r_rel_pred = r_rel_pred / (1 - dt * L_n / 2)
+                r_rel_wped = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
+                r_rel_wped = r_rel_wped / (1 - dt * L_n / 2)
 
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
 
                 r_rel = r_rel + (dt/2) * L_n * r_rel + sdev_d * disp2
 
-                l12 = norm2(r_rel_pred)  ! For evaluation of L_n+1
+                l12 = norm2(r_rel_wped)  ! For evaluation of L_n+1
                 L2_n = mu_eff * k_s * (l0 - l12) / l12
 
                 r_rel = r_rel / (1 - dt * L2_n / 2)
@@ -217,13 +252,13 @@ module DiffusionCLs
         ! x^{p,n+1/2} = x^n + dt/2 * L(x^n) * (x^n) + sqrt(D dt) N_1(0,1)
         ! x^{n+1} = x^n + dt * (L(x^{n+1/2})x^{p,n+1/2} + sqrt(dt D) (N_1(0,1) + N_2(0,1))
         subroutine explicitMidpoint(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps
-            real(pr), dimension(dim), intent(inout)     :: r_cm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(pr), dimension(dim)                    :: disp1, disp2, disp3, r_rel_pred
-            real(pr)                                    :: l12, sdev_cm, sdev_d, D_rel, D_cm, mu_eff
+            real(wp), dimension(dim)                    :: disp1, disp2, disp3, r_rel_wped
+            real(wp)                                    :: l12, sdev_cm, sdev_d, D_rel, D_cm, mu_eff
             integer                                     :: i
 
             mu_eff = mu_1 + mu_2                            ! Effective Mobility for r_rel
@@ -250,10 +285,10 @@ module DiffusionCLs
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
                 !Predictor Step
-                r_rel_pred = r_rel + dt * mu_eff * k_s * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_pr) * sdev_d * disp2
+                r_rel_wped = r_rel + dt * mu_eff * k_s * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_wp) * sdev_d * disp2
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
-                l12 =norm2(r_rel_pred) ! L evaluated at n + 1/2
-                r_rel = r_rel + dt * mu_eff * k_s * r_rel_pred * (l0 - l12) / (l12) + sqrt(0.5_pr) * sdev_d * (disp2 + disp3)
+                l12 =norm2(r_rel_wped) ! L evaluated at n + 1/2
+                r_rel = r_rel + dt * mu_eff * k_s * r_rel_wped * (l0 - l12) / (l12) + sqrt(0.5_wp) * sdev_d * (disp2 + disp3)
                 
 
             end do
@@ -263,15 +298,15 @@ module DiffusionCLs
         ! Apply the implicit trapezoidal method to the dl equation and
         ! the Euler-Lie integrator for rotation on the unit sphere, du
         subroutine rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            real(pr), intent(in)                        :: dt, mu_1, mu_2
+            real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps
-            real(pr), dimension(dim), intent(inout)     :: r_cm, r_rel
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(pr), dimension(dim)                    :: u, disp1, disp3, N_hat
-            real(pr)                                    :: L_n, mu_eff, D_rel, G, G_pred, theta, sdev_cm, D_cm
+            real(wp), dimension(dim)                    :: u, disp1, disp3, N_hat
+            real(wp)                                    :: L_n, mu_eff, D_rel, G, G_wped, theta, sdev_cm, D_cm
             integer                                     :: i
-            real(pr)                                    :: disp2, l, l_pred, explicit
+            real(wp)                                    :: disp2, l, l_wped, explicit
 
             ! Declare variables
             mu_eff = mu_1 + mu_2 
@@ -302,18 +337,18 @@ module DiffusionCLs
                 disp2 = sqrt(2 * D_rel * dt) * disp2
 
                 ! Predictor
-                l_pred = l + 0.5_pr * dt * L_n * l + dt * explicitTerm(l) + disp2
-                l_pred = l_pred / (1 - dt * L_n / 2)
+                l_wped = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + disp2
+                l_wped = l_wped / (1 - dt * L_n / 2)
 
                 ! Corrector
                 select case(sde_integrator_enum)
-                case(4) ! 0.5_pr * dt * (G + G_pred)
-                    explicit = 0.5_pr * dt * (explicitTerm(l) + explicitTerm(l_pred)) 
-                case(5) ! g(1/2*(x^n+x_pred))
-                    explicit = explicitTerm(0.5_pr * (l + l_pred))
+                case(4) ! 0.5_wp * dt * (G + G_wped)
+                    explicit = 0.5_wp * dt * (explicitTerm(l) + explicitTerm(l_wped)) 
+                case(5) ! g(1/2*(x^n+x_wped))
+                    explicit = explicitTerm(0.5_wp * (l + l_wped))
                 end select
 
-                l = l + 0.5_pr * dt * (L_n * l) + explicit + disp2
+                l = l + 0.5_wp * dt * (L_n * l) + explicit + disp2
                 l = l / (1 - dt * L_n / 2)
 
                 ! Euler-Maruyama for r_cm 
@@ -330,8 +365,8 @@ module DiffusionCLs
             contains 
 
             function explicitTerm(l)
-                real(pr), intent(in)        :: l
-                real(pr)                    :: explicitTerm
+                real(wp), intent(in)        :: l
+                real(wp)                    :: explicitTerm
 
                 explicitTerm = 2 * kbT * mu_eff / l + l0 * mu_eff * k_s
 
@@ -340,9 +375,9 @@ module DiffusionCLs
         end subroutine
 
         subroutine rotate(u, theta, N)
-            real(pr), dimension(dim), intent(inout)     :: u
-            real(pr), intent(in)                        :: theta 
-            real(pr), dimension(dim), intent(in)        :: N
+            real(wp), dimension(dim), intent(inout)     :: u
+            real(wp), intent(in)                        :: theta 
+            real(wp), dimension(dim), intent(in)        :: N
 
             ! Assumed that N is a unit vector
             u = u * cos(theta) + cross(N,u)*sin(theta) + N * dot_product(N,u) * (1-cos(theta))
@@ -350,17 +385,20 @@ module DiffusionCLs
         end subroutine
 
         function cross(a, b)
-            real(pr), dimension(3) :: cross
-            real(pr), dimension(3), intent(in) :: a, b
+            real(wp), dimension(3) :: cross
+            real(wp), dimension(3), intent(in) :: a, b
           
             cross(1) = a(2) * b(3) - a(3) * b(2)
             cross(2) = a(3) * b(1) - a(1) * b(3)
             cross(3) = a(1) * b(2) - a(2) * b(1)
         end function cross
 
-        function randomDimer()
-            real(pr), dimension(dim)                :: orientationVector, randomDimer
-            real(pr)                                :: lengthRand
+        ! Donev: Changed this to a subroutine since it has side effects (calls RNG)
+        subroutine randomDimer(randomDisp)
+            real(wp), dimension(dim), intent (out) :: randomDisp
+            
+            real(wp), dimension(dim)                :: orientationVector
+            real(wp)                                :: lengthRand
 
             call NormalRNGVec(numbers = orientationVector, n_numbers = dim) ! Mean zero and variance one
             orientationVector = orientationVector / norm2(orientationVector)  
@@ -369,8 +407,8 @@ module DiffusionCLs
             call NormalRNG(lengthRand) ! Mean Zero, Variance 1 
             lengthRand = l0 * l0 * sqrt(kbT / k_s) * lengthRand + l0   ! Mean l0, variance of gibbs * l0^2
 
-            randomDimer = orientationVector * lengthRand
+            randomDisp = orientationVector * lengthRand
    
-        end function randomDimer
+        end subroutine randomDimer
           
 end module

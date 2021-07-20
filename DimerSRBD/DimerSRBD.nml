@@ -1,7 +1,7 @@
 &DoiDriverOptions
    basename = "MonomerSRBD"
-   nSteps = 1000 ! Total number of steps
-   nOutputStep = 1 ! Write number of particles
+   nSteps = 100 ! Total number of steps
+   nOutputStep = 0 ! Write number of particles
    nStatsStep = 0 ! Print some statistics to screen
    nEquilibrationStep = 0
    nSampleStep = 0 ! Do not use HydroGrid here
@@ -10,7 +10,7 @@
 
 
 &DoiBoxOptions
-   reactionScheme = 1  ! 0 for S-BD-RME, 1 for SRBD
+   reactionScheme = 0  ! 0 for S-BD-RME, 1 for SRBD
 
    ! Enter reactionNetwork(nSpecies,2,nReactions)
    ! Binding reaction: 1+2->3+2 ! Catalyst
@@ -20,13 +20,13 @@
    
    reactionNetwork(:,:,1) = 1 1 0 0, 0 1 1 0 ! Binding reaction: 1+2->3+2
    reactionNetwork(:,:,2) = 0 1 1 0, 0 0 1 1 ! Blocking reaction: 3+2->3+4
-   reactionRate(1:2) = 10.0  1000.0 ! Large rate will make it react as soon as it overlaps
+   reactionRate(1:2) = 10.0  100.0 ! Large rate will make it react as soon as it overlaps
    
-   inputTimestep=1.0 ! dt for small D 
+   inputTimestep=1.0 ! Time step size dt
+   ! The following is only used for SRBD
    speciesDiameter(1:4) = 0.01 0.008 0.01 0.008 ! Reactive diameters of particles
 
-   speciesDiffusivity(1:4) = 1.0 0.0 0.0 0.0 ! The first number if only used if add_spring=false and there are free monomers
-   
+   speciesDiffusivity(1:4) = 1.0e-3 0.0 0.0 0.0 ! The first number if only used if add_spring=false and there are free monomers   
    
    !---------------------
    sampleCellLength(1:3) = 1.0 1.0 1.0 ! This is the system size (there is only one sampling cell); must be bigger than 3*dx
@@ -38,7 +38,7 @@
       
    ! Misc:
    fractionExtraParticles = 0.0
-   nMaxParticlesPerCell = 0 ! Set to zero to estimate numerically
+   nMaxParticlesPerCell = 5 ! Set to zero to estimate numerically
    strangSplitting = .false.
    diffuseByHopping = 0 ! 0=continuous walk, 1=discrete walk, 2=remain on lattice
 /
@@ -52,12 +52,13 @@
   visc = 1.0,
   sde_integrator_enum = 4 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration
   add_springs = T ! If false, do monomers for the CLs, not dimers
-  debug_CLs = .true.
-  n_dimers = 10
-  n_fiber_blobs = 400
+  debug_CLs = .false.
+  n_dimers = 100
+  n_fiber_blobs = 400 ! 1913 ! Max number in FibersDiameterApart2.txt
   nsteps_CLs = 1
   blobInitializer = "FibersDiameterApart2.txt"
-  outputFile = "DimerSimulation5.txt"
+  outputFile = "DimerSimulation.txt"
+  nOutputCLsStep = 10 ! Output CL positions every so many time steps
 /
 &
 

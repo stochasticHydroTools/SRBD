@@ -412,8 +412,9 @@ end subroutine createDoiBox
 
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
-   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob, MYUNIT
-   real(wp)                            :: random(nMaxDimensions)
+   
+   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob, fiberUnit
+   real(wp)                            :: random(nMaxDimensions), randomDisp(nDimensions)
    
    ! Initialize without bound dimers:
    box%nParticles (:) = 0 ! No particles of any other species except unbound particles
@@ -465,7 +466,8 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
          box%particle(2*iParticle-1)%position = random*domainLength
          
          ! Kishore: Added random orientation and length, but on average will be l0 length.
-         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + randomDimer()
+         call randomDimer(randomDisp)
+         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + randomDisp
          
          ! Set both species to be 1. 
          box%particle(2*iParticle-1)%species = 1
@@ -477,20 +479,17 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
       end if   
    end do
    ! Kishore: Want to read in the first n_fiber_blobs from file blobInitializer in nml file.
-   open(newunit = MYUNIT, file = blobInitializer)
+   open(newunit = fiberUnit, file = blobInitializer)
    do blob=1, n_fiber_blobs
       iParticle=box%nParticles(1)+blob  ! Kishore: So first 2*nDimers are species 1, then the next 2*nDimers + n_fiber_blobs are species 2
       ! Read in from file. 
-      read(MYUNIT, *) box%particle(iParticle)%position(:)
-      !print *, "LOOK HERE", box%particle(iParticle)%position(:) Debugging (delete later)
-      
-      ! KISHORE: Below puts the fiber in middle of box along y/z
-      !box%particle(iParticle)%position(1) = (blob - 1) * domainLength / n_fiber_blobs
-      !box%particle(iParticle)%position(2:nMaxDimensions) = 0.5_wp*domainLength(2:nMaxDimensions)
-      ! Donev: This aligns the fiber blobs one by one along the x axis
+      read(fiberUnit, *) box%particle(iParticle)%position(:)      
       box%particle(iParticle)%species = 2     
    end do
-   close(MYUNIT)
+   close(fiberUnit)
+   
+   ! Donev: It is important now to fix up periodic BCs since some particles may have been initialized outside of the box:
+   call mover(box,0.0_wp) ! Doesn't actually move the particles, just fixes up BCs
 
    if (reactionScheme==IRDME) then
       call initializeIRDME(box)
@@ -1245,7 +1244,6 @@ contains
             
          end if
       end do
-      write(77,*) ! blank line
       
       if(n_mobile_particles==0) stop "No more mobile particles left" ! Donev/Kishore
       
@@ -1406,6 +1404,7 @@ subroutine reaction_RDME(box,timestep)
    integer :: i, j, k
    integer, dimension(nMaxDimensions) :: cellIndices
    
+   ! DONEV: TODO
    ! PARALLEL in principle: This loop can be parallelized since the reactions are local
    !   but not important since this is not our goal and we can do this in parallel better in other ways
    ! One must watch out for any global operations in reaction_RDME_cell such as calls to updateFreeParticle
@@ -1995,11 +1994,16 @@ subroutine reaction_IRDME(box,timestep)
       if (propensity(0)>0.0_wp) then
          call calculateTau(propensity(0),tau)
          tau = box%elapsedTime+tau ! box%elapsedTime=0 but add it for code clarity
-         if( tau <= timestep) call insertInHeap(box%heap,iCell,tau)
+         if( tau <= timestep) then
+            ! write(*,*) "Scheduling event for cell ", iCell, " at t +=", tau ! DEBUG
+            call insertInHeap(box%heap,iCell,tau)
+         end if   
       end if
    end do
 
    if (isAssertsOn) call LLCtest(box)
+   
+   !write(*,*) "Starting SSA loop" ! DEBUG
    
    ! This loop is very difficult to parallelize
    ! Loop over events:
@@ -2043,6 +2047,9 @@ subroutine reaction_IRDME(box,timestep)
       choiceReactionTable = reactionTable(choiceOfReaction,:)
       speciesOfReagent_1 = choiceReactionTable(1); speciesOfReagent_2 = choiceReactionTable(2)
       speciesOfProduct_1 = choiceReactionTable(3); speciesOfProduct_2 = choiceReactionTable(4)
+
+      ! DEBUG:
+      !write(*,*) "Processing reaction of type ", typeOfChoice, " for cell ", reactionCell_1, " of species ", speciesOfReagent_1, speciesOfReagent_2
 
       ! Create product particles or remove reacted particles, depending on the type of reaction:
       select case(typeOfChoice)
@@ -2430,6 +2437,7 @@ subroutine reaction_IRDME(box,timestep)
 
       end select
 
+
       ! Now we need to update all entries in the event queue that got changed:
       if (reactionCell_1==reactionCell_2) then
          reactionCell_2 = 0
@@ -2476,6 +2484,8 @@ contains
          case (1)
             propensity(iReaction)=box%numberPerCellList(reagent_1,cellIndex)*IRDME_reactionRate(iReaction)
          case (2)
+            ! DEBUG:
+            ! write(*,*) "cellIndex=", cellIndex, " n_p1(", reagent_1,")=",box%numberPerCellList(reagent_1,cellIndex), "n_p2(",reagent_2,")=", nNeighbors(reagent_2)
             pairs = box%numberPerCellList(reagent_1,cellIndex) * nNeighbors(reagent_2)
             ! Assuming four cases:
             ! For A+B->?, which is duplicated as A+B-> or B+A->
@@ -2582,6 +2592,7 @@ contains
          cellIndex = updateList(iCell)
       
          call calculatePropensity_IRDME(box,cellIndex,propensity,nNeighbors)
+         ! write(*,*) "Scheduling new event for cell ", cellIndex, propensity,nNeighbors ! DEBUG
          if (propensity(0)<=0.0_wp) then
             call deleteFromHeap(box%heap,cellIndex) ! Safe to call even if deleted already
          else
@@ -2591,6 +2602,7 @@ contains
             if(tau > timestep) then ! No need to insert this into the heap at all
                call deleteFromHeap(box%heap,cellIndex) ! Safe to call even if deleted already
             else
+               !write(*,*) "Inserting again with t=", tau ! DEBUG
                call insertInHeap(box%heap,cellIndex,tau) ! This will call updateHeap if already in the heap
             end if   
          end if

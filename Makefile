@@ -21,8 +21,8 @@ FC_O=gfortran -O3 -Wall -ffree-line-length-none  # Optimized
 FC_g=gfortran -Og -g -fbounds-check -Wall -ffree-line-length-none # Debugging
 
 # Choose level of optimization:
-#FC=$(FC_O) # For OPTIMIZED code, use for production code
-FC=$(FC_g) # For DEBUGGING code, use this during development of code
+FC=$(FC_O) # For OPTIMIZED code, use for production code
+#FC=$(FC_g) # For DEBUGGING code, use this during development of code
 
 # We no longer support the old OpenGL-enabled HydroGrid code:
 include $(SRC_DOI)/MakefileCommon

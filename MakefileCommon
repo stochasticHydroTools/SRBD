@@ -59,7 +59,7 @@ VisitWriter.o: VisitWriter.f90
 HydroGridModule.o: HydroGridModule.f90 FFTW.o VisitWriter.o
 	$(FC) -c $<
 
-DiffusionCLs.o: DiffusionCLs.f90 RNG.o Precision.o
+DiffusionCLs.o: DiffusionCLs.f90 RNG.o Precision.o MinHeapModule.o
 	$(FC) -c $<
 
 MinHeapModule.o: MinHeapModule.f90

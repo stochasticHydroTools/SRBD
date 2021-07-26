@@ -6,11 +6,11 @@ module DiffusionCLs
     implicit none 
     save
 
-    integer, parameter, private                     :: dim = 3  ! Dimension must be consistent with main code
+    integer, parameter, private                     :: dim = 3   ! Dimension must be consistent with main code
     real(wp), parameter, private                    :: pi = 4.0_wp*ATAN(1.0_wp)
     integer, private :: outputUnit
 
-    real(wp)                                        :: kbT = 4.0E-3_wp ! Boltzmann constant in units of pN * um 
+    real(wp)                                        :: kbT = 0.1_wp ! Boltzmann constant in units of pN * um 
     real(wp)                                        :: a_1=1.0_wp, a_2=1.0_wp, visc=1.0_wp, k_s=1.0_wp, l0=1.0_wp
     real(wp)                                        :: mu_1_0, mu_2_0, tau_s, tau_r, tau_d ! Computed values
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
@@ -37,7 +37,7 @@ module DiffusionCLs
         subroutine initializeCLs(nml_unit)
             integer, intent(in), optional :: nml_unit ! Read namelist from open file if passed in
             
-            real(wp)        ::  lA, D_cm
+            real(wp)        ::  lA, D_cm, dl
             
             ! Will read namelist and put in all values.
             ! Other things, like filenames to write to are not included, because this is oly needed in
@@ -48,10 +48,16 @@ module DiffusionCLs
             D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0)
             write(*,*) "CLs diffusing with D=", D_cm
             
+            
             tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
-            !lA = ((l0**4)*k_s*k_s + 6*l0*l0*kbT*k_s+3*kbT*kbT) / (k_s*(k_s*l0*l0 + kbT)) Rotational time scale for non stiff springs (replace l0*l0
-            ! with lA)
-            tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs
+
+            dl = sqrt(kbT/k_s)
+            !lA = ((10 * (dl ** 3) * l0 + 2 * dl * (l0 ** 3)) * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp) &
+            !+ 3.0_wp * sqrt(2.0_wp) * ((dl ** 4) + (2 * (dl ** 2) * (l0 ** 2)) + (l0 ** 4) / 3.0) * &
+            !(erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp) * sqrt(pi)) / (2.0_wp * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp)) &
+            !* dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp))
+            
+            tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
             tau_d = l0*l0 / D_cm
             
             write(*,*) "CLs: tau_s=", tau_s, " tau_r=", tau_r, " tau_d=", tau_d
@@ -64,8 +70,6 @@ module DiffusionCLs
             if (nOutputCLsStep>0) close(outputUnit)
         end subroutine
 
-        ! Donev: This can output a separate file for each step (now a required argument)
-        ! Or write to one file but in this case you want to somehow know which step/time a given position refers to
         subroutine outputCLs(step, time, particle, specie, position)
             integer, intent(in)                               :: step
             real(wp), intent(in), optional                    :: time
@@ -131,7 +135,11 @@ module DiffusionCLs
             integer, intent(in)                         :: nsteps       
             real(wp), dimension(dim), intent(inout)     :: r_1, r_2
             real(wp), dimension(dim) :: r_cm, r_rel
+            real(wp)                    :: mu_perp, mu_para 
 
+            ! The parallel and perpendicular calculations assume equal mobilities, so just take mu_1
+            mu_perp = mu_1 
+            mu_para = mu_1 / 2
             
             r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
             r_rel = r_1 - r_2
@@ -145,6 +153,8 @@ module DiffusionCLs
                call implicitTrapezoidal(dt, nsteps, mu_1, mu_2, r_cm, r_rel) 
             case(4, 5)
                 call rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
+            case(6)
+                call anisotropicDimer(dt, nsteps, mu_perp, mu_para, r_cm, r_rel)
             end select
 
             ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
@@ -200,7 +210,7 @@ module DiffusionCLs
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: disp1, disp2, r_rel_wped
+            real(wp), dimension(dim)                    :: disp1, disp2, r_rel_pred
             real(wp)                                    :: l12, sdev_cm, sdev_d, L2_n, L_n, D_cm, D_rel, mu_eff
             integer                                     :: i
 
@@ -229,14 +239,14 @@ module DiffusionCLs
                 L_n = mu_eff * k_s * (l0 - l12) / l12
 
                 !Predictor Step
-                r_rel_wped = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
-                r_rel_wped = r_rel_wped / (1 - dt * L_n / 2)
+                r_rel_pred = r_rel + (dt / 2) * L_n * r_rel + sdev_d * disp2
+                r_rel_pred = r_rel_pred / (1 - dt * L_n / 2)
 
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
 
                 r_rel = r_rel + (dt/2) * L_n * r_rel + sdev_d * disp2
 
-                l12 = norm2(r_rel_wped)  ! For evaluation of L_n+1
+                l12 = norm2(r_rel_pred)  ! For evaluation of L_n+1
                 L2_n = mu_eff * k_s * (l0 - l12) / l12
 
                 r_rel = r_rel / (1 - dt * L2_n / 2)
@@ -257,7 +267,7 @@ module DiffusionCLs
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: disp1, disp2, disp3, r_rel_wped
+            real(wp), dimension(dim)                    :: disp1, disp2, disp3, r_rel_pred
             real(wp)                                    :: l12, sdev_cm, sdev_d, D_rel, D_cm, mu_eff
             integer                                     :: i
 
@@ -285,10 +295,10 @@ module DiffusionCLs
                 call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one
                 call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
                 !Predictor Step
-                r_rel_wped = r_rel + dt * mu_eff * k_s * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_wp) * sdev_d * disp2
+                r_rel_pred = r_rel + dt * mu_eff * k_s * r_rel * (l0 - l12) / (l12 * 2) + sqrt(0.5_wp) * sdev_d * disp2
                 ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
-                l12 =norm2(r_rel_wped) ! L evaluated at n + 1/2
-                r_rel = r_rel + dt * mu_eff * k_s * r_rel_wped * (l0 - l12) / (l12) + sqrt(0.5_wp) * sdev_d * (disp2 + disp3)
+                l12 =norm2(r_rel_pred) ! L evaluated at n + 1/2
+                r_rel = r_rel + dt * mu_eff * k_s * r_rel_pred * (l0 - l12) / (l12) + sqrt(0.5_wp) * sdev_d * (disp2 + disp3)
                 
 
             end do
@@ -410,5 +420,94 @@ module DiffusionCLs
             randomDisp = orientationVector * lengthRand
    
         end subroutine randomDimer
+
+        ! Simulates r_d and r_cm for non-isotropic mobilities
+        subroutine anisotropicDimer(dt, nsteps, mu_perp, mu_para, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt, mu_perp, mu_para
+            integer, intent(in)                         :: nsteps
+            real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
+
+            ! Local Variables
+            real(wp), dimension(dim)                    :: disp1, disp2, r_rel_pred, u, u_n, L_n, K
+            real(wp)                                    :: l12, mu_eff_para, mu_eff_perp, mu_cm_para, mu_cm_perp, sdev_cm_perp, sdev_cm_para, sdev_rel_para, sdev_rel_perp
+            integer                                     :: i
+            
+            l12 = norm2(r_rel)
+            u_n = r_rel / l12
+            u = u_n
+
+            ! Non-isotropic components for mu, assuming equal mobilities
+            mu_eff_para = 2 * mu_para
+            mu_eff_perp = 2 * mu_perp
+            mu_cm_para = 0.5_wp * mu_para
+            mu_cm_perp = 0.5_wp * mu_perp
+
+
+            do i = 1, nsteps
+
+                ! Euler-Maruyama for r_cm
+                if (evolve_r_cm) then
+                    call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
+                    sdev_cm_perp = sqrt(2 * kbT * mu_cm_perp * dt)
+                    sdev_cm_para = sqrt(2 * kbT * mu_cm_para * dt)
+                    r_cm = r_cm + sdev_cm_perp * disp1 + (sdev_cm_para - sdev_cm_perp) * u_n * dot_product(u_n, disp1)   ! Dot product with the initial u vector                       
+                end if
+
+                ! Implicit Trapezoidal for r_rel
+                call NormalRNGVec(numbers = disp2, n_numbers = dim) ! Mean zero and variance one  
+                sdev_rel_perp = sqrt(2 * kbT * mu_eff_perp * dt)
+                sdev_rel_para = sqrt(2 * kbT * mu_eff_para * dt)
+
+                ! Evaluate l12 when we are at x_n. Note that this is DEPENDENT on where rd is so l12 = l12(rd). 
+                ! Make sure to update appropriately
+                l12 = norm2(r_rel) 
+                u = r_rel / l12
+                L_n =  (k_s * (l0 - l12) / l12) * (mu_eff_perp * r_rel + (mu_eff_para - mu_eff_perp) * u * dot_product(u, r_rel) ) ! Technically, this is L*r_rel not just L, so I avoid matricies
+                K = sdev_rel_perp * disp2 + (sdev_rel_para - sdev_rel_perp) * u * dot_product(u, disp2)             ! Technically K*W, not just K
+
+
+                ! Predictor Step
+                r_rel_pred = r_rel + (0.5_wp * dt) * L_n + K
+                ! Inversion Predictor step.
+                r_rel_pred =  alpha(r_rel)*r_rel + beta(r_rel)*u*dot_product(u,r_rel)
+
+                ! Corrector L has now changed, as l12 evaluated at the predictor stage is now different. 
+                r_rel = r_rel + (0.5_wp * dt) * L_n + K 
+                ! Inversion Corrector Step
+                r_rel = alpha(r_rel_pred)*r_rel + beta(r_rel_pred)*u*dot_product(u, r_rel)
+
+            end do
+
+
+
+            contains 
+
+            ! First component alpha of matrix inverse of form alpha *I + beta * u u^T
+            function alpha(r_rel)
+                real(wp), dimension(dim), intent(in)     :: r_rel
+                real(wp)                                 :: alpha, l12
+
+                l12 = norm2(r_rel)
+                alpha = 1 / (1 - dt * k_s * (l0 - l12) * mu_perp / (2*l12))
+
+            end function alpha
+
+            ! Second component of matrix inverse of form alpha *I + beta * u u^T
+            function beta(r_rel)
+                real(wp), dimension(dim), intent(in)     :: r_rel
+                real(wp)                                 :: beta, l12, a, b
+
+                l12 = norm2(r_rel)
+                a = (1 - dt * k_s * (l0 - l12) * mu_perp / (2*l12))
+                b = dt * k_s * (l0 -l12) * (mu_perp - mu_para) / (2*l12)
+
+                beta = -b / (a*(a+b))
+
+            end function beta
+
+        end subroutine anisotropicDimer
+
+
+
           
 end module

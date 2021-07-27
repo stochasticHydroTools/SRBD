@@ -10,12 +10,20 @@ module DiffusionCLs
     real(wp), parameter, private                    :: pi = 4.0_wp*ATAN(1.0_wp)
     integer, private :: outputUnit
 
-    real(wp)                                        :: kbT = 0.1_wp ! Boltzmann constant in units of pN * um 
-    real(wp)                                        :: a_1=1.0_wp, a_2=1.0_wp, visc=1.0_wp, k_s=1.0_wp, l0=1.0_wp
-    real(wp)                                        :: mu_1_0, mu_2_0, tau_s, tau_r, tau_d ! Computed values
+    real(wp)                                        :: kbT = 0.1_wp ! Boltzmann constant in units of pN * um ! Donev: It cannot be 0.1, must have more digits to it???
+    
+    ! Donev: For isotropic diffusion, these determine the mobility/diffusion of the two monomers in each dimer
+    ! For anisotropic diffusion, a_1 and mu_1_0 determine the translational diffusion coefficient
+    ! while a_2 and mu_2_0 determine the rotational diffusion coefficient
+    ! Note that this refers to the diffusion of the WHOLE dimer, not to monomers.
+    ! In effect, the dimer is considered one object/body not two separate monomers in this case
+    real(wp)                                        :: a_1=1.0_wp, a_2=1.0_wp, visc=1.0_wp, k_s=1.0_wp, l0=1.0_wp    
+    real(wp)                                        :: mu_1_0, mu_2_0, mu_par, mu_perp, tau_s, tau_r, tau_d ! Computed values
+
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotation-vibration integrator w/  
     ! 0.5_wp * dt * (G + G_pred), 5: rotationVibration with g(1/2*(x^n+x_pred))
+
     character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt", outputFile = "DimerSimulation.txt" 
     logical                                         :: evolve_r_cm = .true.
 
@@ -45,20 +53,37 @@ module DiffusionCLs
             ! COM_TwoParticlesSpring.f90 and may not be used in all cases when I use this module.            
             mu_1_0 = 1.0_wp / (6 * pi * visc * a_1)
             mu_2_0 = 1.0_wp / (6 * pi * visc * a_2)
-            
-            D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0)
-            write(*,*) "CLs diffusing with D=", D_cm
-            
-            
-            tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
 
+            ! Gibbs-Boltzmann is indpendent of mobility:
             dl = sqrt(kbT/k_s)
+            ! Donev: Kishore, since we know this to be more accurate and work also for non-stiff springs, why did you comment it out instead of use it?
+            ! You should use the most accurate estimate available
             !lA = ((10 * (dl ** 3) * l0 + 2 * dl * (l0 ** 3)) * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp) &
             !+ 3.0_wp * sqrt(2.0_wp) * ((dl ** 4) + (2 * (dl ** 2) * (l0 ** 2)) + (l0 ** 4) / 3.0) * &
             !(erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp) * sqrt(pi)) / (2.0_wp * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp)) &
             !* dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp))
             
-            tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+            
+            ! Donev/Kishore: Finish this code Kishore as I illustrate
+            ! Replace l0**2 with improved estimate based on <1/l^2> in tau_r in both cases
+            if(anisotropicMobility) then
+               
+               D_cm = kbT * mu_1_0 ! Here mu_1_0 refers to translation (D_cm=2/3*D_perp+1/3*D_par)
+               
+               mu_par = 3*(mu_1_0-2.0_wp/3.0_wp*mu_2_0) ! Donev: Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
+               mu_perp = mu_2_0 ! Here mu_2_0 refers to rotation = perp
+               
+               ! Donev: Observe the change of convention here: It is not 2*mu_par but mu_par since one object not two monomers
+               tau_s = 1.0_wp / (k_s * mu_par)      ! Spring time scale involves parallel mobility only
+               tau_r = l0*l0 / (2 * kbT * mu_perp)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+            else   
+
+               D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0) ! Center of mass diffusion coefficient
+               tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
+               tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+
+            end if
+            write(*,*) "CLs diffusing with D=", D_cm
             tau_d = l0*l0 / D_cm
             
             write(*,*) "CLs: tau_s=", tau_s, " tau_r=", tau_r, " tau_d=", tau_d
@@ -131,12 +156,41 @@ module DiffusionCLs
         end subroutine
 
 
-        subroutine moveDimer(dt, nsteps, mu_1, mu_2, r_1, r_2)
-            real(wp), intent(in)                        :: dt, mu_1, mu_2
+        subroutine moveDimer(dt, nsteps, immobile, r_1, r_2)
+            real(wp), intent(in)                        :: dt
+            integer, intent(in)                         :: immobile ! <=0 if both mobile, or 1 or 2 to indicate immobile particle
             integer, intent(in)                         :: nsteps       
             real(wp), dimension(dim), intent(inout)     :: r_1, r_2
-            real(wp), dimension(dim) :: r_cm, r_rel
+            
+            ! Local variables:
+            real(wp), dimension(dim) :: r_cm, r_rel, mu_1, mu_2
+            
+            if(immobile>2) return ! Nothing to move
 
+            if(anisotropicMobility) then
+            
+               if(sde_integrator_enum<4) stop "Only rotationVibration integrator supported for anisotropic mobility"
+               
+               ! Here mu_1 and mu_2 are only used for computing r_cm and not to actually update the dimers
+               ! These are not actual mobilities just set to 1 (mobile) or 0 (immobile)
+               select case(immobile)
+               case(0)
+                  mu_1=1.0_wp
+                  mu_2=1.0_wp
+               case(1)   
+                  mu_1=0.0_wp
+                  mu_2=1.0_wp
+               case(2)   
+                  mu_1=1.0_wp
+                  mu_2=0.0_wp               
+               end select
+               
+            else
+               
+               mu_1 = mu_1_0
+               mu_2 = mu_2_0   
+            
+            end if
             
             r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
             r_rel = r_1 - r_2
@@ -149,8 +203,7 @@ module DiffusionCLs
             case(3)
                call implicitTrapezoidal(dt, nsteps, mu_1, mu_2, r_cm, r_rel) 
             case(4, 5)
-                ! If anisotropicMobility = true, mu_1 is mu_parallel and mu_2 is mu_perpendicular
-                call rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
+               call rotationVibration(dt, nsteps, immobile, r_cm, r_rel)
             end select
 
             ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
@@ -281,7 +334,7 @@ module DiffusionCLs
 
 
                 ! Euler-Maruyama for r_cm
-                if (evolve_r_cm) then
+                if (evolve_r_cm) then ! Donev: In all of these places check if D_cm>0.0_wp first
                     call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                     r_cm = r_cm + sdev_cm * disp1                       
                 end if
@@ -303,30 +356,48 @@ module DiffusionCLs
 
         ! Apply the implicit trapezoidal method to the dl equation and
         ! the Euler-Lie integrator for rotation on the unit sphere, du
-        ! If anisotropicMobility = true, mu_1 is parallel component, mu_2 is perpendicular component.
-        subroutine rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            real(wp), intent(in)                        :: dt, mu_1, mu_2
+        subroutine rotationVibration(dt, nsteps, immobile, r_cm, r_rel)
+            real(wp), intent(in)                        :: dt
             integer, intent(in)                         :: nsteps
+            integer, intent(in)                         :: immobile ! <=0 if both mobile, or 1 or 2 to indicate immobile particle            
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: u, u_n, disp1, disp3, N_hat
-            real(wp)                                    :: L_n, mu_eff, D_rel, G, G_pred, theta, sdev_cm, D_cm
             integer                                     :: i
-            real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_para
+            real(wp), dimension(dim)                    :: u, u_n, disp1, disp3, N_hat
+            real(wp)                                    :: L_n, D_rel, G, G_pred, theta, sdev_cm, D_cm, mu_1, mu_2
+            real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_par
 
-            ! Declare variables
+                        
             if (.not. anisotropicMobility) then
-                mu_eff = mu_1 + mu_2 
-                D_rel = kbT * mu_eff
-                D_cm = kbT * mu_1 * mu_2 / (mu_eff)        ! Diffusive coeff for r_cm
-                mu_l = mu_eff   ! In isotropic case, mu_l is just mu_1 + mu_2
-            else
-                mu_u = 2 * mu_2 ! 2* mu_perp
+            
+                if(immobile==1) then
+                   mu_1=0.0_wp
+                else
+                   mu_1 = mu_1_0
+                end if     
+                if(immobile==2) then
+                   mu_2=0.0_wp
+                else
+                   mu_2 = mu_2_0
+                end if
+
+                mu_l = mu_1 + mu_2 
+                D_rel = kbT * mu_l
+                D_cm = kbT * mu_1 * mu_2 / mu_l        ! Diffusion coeff for r_cm
+                
+            else if(immobile<=0) then ! Both monomers are mobile
+                ! Donev: It is important to note that here mu_u=mu_perp not 2*mu_perp
+                ! That is, mu_perp and mu_par refer to the free dimer effective mobility not to each monomer individually (monomers don't really exist here)
+                mu_u = mu_perp
                 D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
-                mu_l = 2 * mu_1 ! 2 * mu_parallel, NOT mu_eff as in isotropic case, altho it is treated equivalently
-                ! Can just get rid of mu_eff as well and set mu_l = mu_1 + mu_2, but this notation may be cleaner?
-                ! Otherwise mu_l will be used in the du SODE which is a little confusing
+                mu_l = mu_par ! Donev: I removed mu_eff and now it is called mu_l instead
+                D_cm = kbT * ((2.0_wp/3.0_wp)*mu_perp + (2.0_wp/3.0_wp)*mu_par)
+            else ! We are doing anisotropicMobility but one monomer is immobile so mobility is cut in half when partly immobilized
+                mu_u = 0.5_wp*mu_perp
+                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
+                mu_l = 0.5_wp*mu_parallel ! Donev: I removed mu_eff and now it is called mu_l instead
+                D_cm = 0.0_wp ! No motion of center of mass since partly immobilized
             end if
 
             ! Change coordinates
@@ -367,19 +438,19 @@ module DiffusionCLs
                 l = l + 0.5_wp * dt * (L_n * l) + explicit + disp2
                 l = l / (1 - dt * L_n / 2)
 
-                ! Euler-Maruyama for r_cm 
-                ! If mu_1 or mu_2 = 0 then there is no change in the COM, so do not update r_cm.
-                if (evolve_r_cm .and. .not. anisotropicMobility .and. mu_1 > 0 .and. mu_2 > 0) then
+                ! Euler-Maruyama for r_cm if D_cm>0
+                if(evolve_r_cm .and. (D_cm>0.0_wp)) then
+                  if(anisotropicMobility) then
+                    call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one 
+                    sdev_cm_perp = sqrt(kbT * mu_perp * dt)    
+                    sdev_cm_par = sqrt(kbT * mu_par * dt)
+                    r_cm = r_cm + sdev_cm_perp * disp3 + &
+                     (sdev_cm_par - sdev_cm_perp) * u_n * dot_product(u_n, disp3)   ! Dot product with the initial u vector       
+                  else                
                     sdev_cm = sqrt(2 * D_cm * dt)
                     call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
                     r_cm = r_cm + sdev_cm * disp3                       
-                else if (evolve_r_cm .and. anisotropicMobility .and. mu_1 > 0 .and. mu_2 > 0) then
-                    call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one        
-                    sdev_cm_perp = sqrt(kbT * mu_2 * dt)    
-                    sdev_cm_para = sqrt(kbT * mu_1 * dt)
-                    r_cm = r_cm + sdev_cm_perp * disp3 + &
-                     (sdev_cm_para - sdev_cm_perp) * u_n * dot_product(u_n, disp3)   ! Dot product with the initial u vector       
-
+                  end if
                 end if
 
 
@@ -446,7 +517,7 @@ module DiffusionCLs
             ! Local Variables
             real(wp), dimension(dim)                    :: disp1, disp2, r_rel_pred, u, u_n, L_n, K
             real(wp)                                    :: l12, mu_eff_para, mu_eff_perp, mu_cm_para, mu_cm_perp, &
-                                                            sdev_cm_perp, sdev_cm_para, sdev_rel_para, sdev_rel_perp
+                                                            sdev_cm_perp, sdev_cm_par, sdev_rel_para, sdev_rel_perp
             integer                                     :: i
             
             l12 = norm2(r_rel)
@@ -466,8 +537,8 @@ module DiffusionCLs
                 if (evolve_r_cm) then
                     call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                     sdev_cm_perp = sqrt(2 * kbT * mu_cm_perp * dt)
-                    sdev_cm_para = sqrt(2 * kbT * mu_cm_para * dt)
-                    r_cm = r_cm + sdev_cm_perp * disp1 + (sdev_cm_para - sdev_cm_perp) * u_n * dot_product(u_n, disp1)   ! Dot product with the initial u vector                       
+                    sdev_cm_par = sqrt(2 * kbT * mu_cm_para * dt)
+                    r_cm = r_cm + sdev_cm_perp * disp1 + (sdev_cm_par - sdev_cm_perp) * u_n * dot_product(u_n, disp1)   ! Dot product with the initial u vector                       
                 end if
 
                 ! Implicit Trapezoidal for r_rel

@@ -15,7 +15,7 @@ module DiffusionCLs
     real(wp)                                        :: mu_1_0, mu_2_0, tau_s, tau_r, tau_d ! Computed values
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
     !1 : Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotation-vibration integrator w/  
-    ! 0.5_wp * dt * (G + G_wped), 5: rotationVibration with g(1/2*(x^n+x_wped))
+    ! 0.5_wp * dt * (G + G_pred), 5: rotationVibration with g(1/2*(x^n+x_pred))
     character(len = 128)                            :: nml_file = "diffCLs.nml", blobInitializer = "FibersDiameterApart.txt", outputFile = "DimerSimulation.txt" 
     logical                                         :: evolve_r_cm = .true.
 
@@ -27,6 +27,7 @@ module DiffusionCLs
     logical :: add_springs=.true.     ! whether to do translational diffusion and add springs
     integer :: nOutputCLsStep=0 ! How often to output positions of CLs to the file outputFile
     logical :: debug_CLs = .false. ! Whether to print out some more info to screen for testing purposes
+    logical :: anisotropicMobility  = .false.   ! Whether or not parallel mobility is seperate from perpendicular mobility
 
     private                                         :: eulerMaruyama, implicitTrapezoidal, explicitMidpoint, rotationVibration
 
@@ -105,7 +106,7 @@ module DiffusionCLs
             ! Namelist definition.
             namelist /diffCLs/ k_s, l0, a_1, a_2, visc, sde_integrator_enum, evolve_r_cm, &
                                add_springs, debug_CLs, n_dimers, n_fiber_blobs, nsteps_CLs, blobInitializer, &
-                               outputFile, nOutputCLsStep
+                               outputFile, nOutputCLsStep, anisotropicMobility
             
             if(present(nml_unit)) then
                unit=nml_unit
@@ -135,11 +136,7 @@ module DiffusionCLs
             integer, intent(in)                         :: nsteps       
             real(wp), dimension(dim), intent(inout)     :: r_1, r_2
             real(wp), dimension(dim) :: r_cm, r_rel
-            real(wp)                    :: mu_perp, mu_para 
 
-            ! The parallel and perpendicular calculations assume equal mobilities, so just take mu_1
-            mu_perp = mu_1 
-            mu_para = mu_1 / 2
             
             r_cm = mu_2 * r_1 / (mu_1 + mu_2) + mu_1 * r_2 / (mu_1 + mu_2)
             r_rel = r_1 - r_2
@@ -152,9 +149,8 @@ module DiffusionCLs
             case(3)
                call implicitTrapezoidal(dt, nsteps, mu_1, mu_2, r_cm, r_rel) 
             case(4, 5)
+                ! If anisotropicMobility = true, mu_1 is mu_parallel and mu_2 is mu_perpendicular
                 call rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
-            case(6)
-                call anisotropicDimer(dt, nsteps, mu_perp, mu_para, r_cm, r_rel)
             end select
 
             ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
@@ -307,25 +303,36 @@ module DiffusionCLs
 
         ! Apply the implicit trapezoidal method to the dl equation and
         ! the Euler-Lie integrator for rotation on the unit sphere, du
+        ! If anisotropicMobility = true, mu_1 is parallel component, mu_2 is perpendicular component.
         subroutine rotationVibration(dt, nsteps, mu_1, mu_2, r_cm, r_rel)
             real(wp), intent(in)                        :: dt, mu_1, mu_2
             integer, intent(in)                         :: nsteps
             real(wp), dimension(dim), intent(inout)     :: r_cm, r_rel
 
             ! Local Variables
-            real(wp), dimension(dim)                    :: u, disp1, disp3, N_hat
-            real(wp)                                    :: L_n, mu_eff, D_rel, G, G_wped, theta, sdev_cm, D_cm
+            real(wp), dimension(dim)                    :: u, u_n, disp1, disp3, N_hat
+            real(wp)                                    :: L_n, mu_eff, D_rel, G, G_pred, theta, sdev_cm, D_cm
             integer                                     :: i
-            real(wp)                                    :: disp2, l, l_wped, explicit
+            real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_para
 
             ! Declare variables
-            mu_eff = mu_1 + mu_2 
-            D_rel = kbT * mu_eff
-            D_cm = kbT * mu_1 * mu_2 / (mu_eff)        ! Diffusive coeff for r_cm
+            if (.not. anisotropicMobility) then
+                mu_eff = mu_1 + mu_2 
+                D_rel = kbT * mu_eff
+                D_cm = kbT * mu_1 * mu_2 / (mu_eff)        ! Diffusive coeff for r_cm
+                mu_l = mu_eff   ! In isotropic case, mu_l is just mu_1 + mu_2
+            else
+                mu_u = 2 * mu_2 ! 2* mu_perp
+                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
+                mu_l = 2 * mu_1 ! 2 * mu_parallel, NOT mu_eff as in isotropic case, altho it is treated equivalently
+                ! Can just get rid of mu_eff as well and set mu_l = mu_1 + mu_2, but this notation may be cleaner?
+                ! Otherwise mu_l will be used in the du SODE which is a little confusing
+            end if
 
             ! Change coordinates
             l = norm2(r_rel)
             u = r_rel / l
+            u_n = u  ! This is the first u before iterations and might be used in computing r_cm
 
             do i = 1, nsteps
 
@@ -339,34 +346,42 @@ module DiffusionCLs
                 call rotate(u, theta, N_hat)
 
                 ! Implicit Trapezoidal method for dl. 
-                L_n = - mu_eff * k_s 
-                !G = 2 * kbT * mu_eff / l + l0 * mu_eff * k_s ! Must be scalar so choose 1st component
+                L_n = - mu_l * k_s 
 
                 ! Random variate for the scalar equation dl
                 call NormalRNG(disp2) ! Always a scalar 
-                disp2 = sqrt(2 * D_rel * dt) * disp2
+                disp2 = sqrt(2 * kbT * mu_l * dt) * disp2
 
                 ! Predictor
-                l_wped = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + disp2
-                l_wped = l_wped / (1 - dt * L_n / 2)
+                l_pred = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + disp2
+                l_pred = l_pred / (1 - dt * L_n / 2)
 
                 ! Corrector
                 select case(sde_integrator_enum)
-                case(4) ! 0.5_wp * dt * (G + G_wped)
-                    explicit = 0.5_wp * dt * (explicitTerm(l) + explicitTerm(l_wped)) 
-                case(5) ! g(1/2*(x^n+x_wped))
-                    explicit = explicitTerm(0.5_wp * (l + l_wped))
+                case(4) ! 0.5_wp * dt * (G + G_pred)
+                    explicit = 0.5_wp * dt * (explicitTerm(l) + explicitTerm(l_pred)) 
+                case(5) ! g(1/2*(x^n+x_pred))
+                    explicit = explicitTerm(0.5_wp * (l + l_pred))
                 end select
 
                 l = l + 0.5_wp * dt * (L_n * l) + explicit + disp2
                 l = l / (1 - dt * L_n / 2)
 
                 ! Euler-Maruyama for r_cm 
-                if (evolve_r_cm) then
+                ! If mu_1 or mu_2 = 0 then there is no change in the COM, so do not update r_cm.
+                if (evolve_r_cm .and. .not. anisotropicMobility .and. mu_1 > 0 .and. mu_2 > 0) then
                     sdev_cm = sqrt(2 * D_cm * dt)
                     call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one
                     r_cm = r_cm + sdev_cm * disp3                       
+                else if (evolve_r_cm .and. anisotropicMobility .and. mu_1 > 0 .and. mu_2 > 0) then
+                    call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one        
+                    sdev_cm_perp = sqrt(kbT * mu_2 * dt)    
+                    sdev_cm_para = sqrt(kbT * mu_1 * dt)
+                    r_cm = r_cm + sdev_cm_perp * disp3 + &
+                     (sdev_cm_para - sdev_cm_perp) * u_n * dot_product(u_n, disp3)   ! Dot product with the initial u vector       
+
                 end if
+
 
             end do
 
@@ -378,7 +393,7 @@ module DiffusionCLs
                 real(wp), intent(in)        :: l
                 real(wp)                    :: explicitTerm
 
-                explicitTerm = 2 * kbT * mu_eff / l + l0 * mu_eff * k_s
+                explicitTerm = 2 * kbT * mu_l / l + l0 * mu_l * k_s
 
             end function explicitTerm
 
@@ -422,6 +437,7 @@ module DiffusionCLs
         end subroutine randomDimer
 
         ! Simulates r_d and r_cm for non-isotropic mobilities
+        ! This is solving the WRONG SDE and missing a drift term, so should NEVER be used. 
         subroutine anisotropicDimer(dt, nsteps, mu_perp, mu_para, r_cm, r_rel)
             real(wp), intent(in)                        :: dt, mu_perp, mu_para
             integer, intent(in)                         :: nsteps
@@ -429,7 +445,8 @@ module DiffusionCLs
 
             ! Local Variables
             real(wp), dimension(dim)                    :: disp1, disp2, r_rel_pred, u, u_n, L_n, K
-            real(wp)                                    :: l12, mu_eff_para, mu_eff_perp, mu_cm_para, mu_cm_perp, sdev_cm_perp, sdev_cm_para, sdev_rel_para, sdev_rel_perp
+            real(wp)                                    :: l12, mu_eff_para, mu_eff_perp, mu_cm_para, mu_cm_perp, &
+                                                            sdev_cm_perp, sdev_cm_para, sdev_rel_para, sdev_rel_perp
             integer                                     :: i
             
             l12 = norm2(r_rel)
@@ -462,7 +479,8 @@ module DiffusionCLs
                 ! Make sure to update appropriately
                 l12 = norm2(r_rel) 
                 u = r_rel / l12
-                L_n =  (k_s * (l0 - l12) / l12) * (mu_eff_perp * r_rel + (mu_eff_para - mu_eff_perp) * u * dot_product(u, r_rel) ) ! Technically, this is L*r_rel not just L, so I avoid matricies
+                L_n =  (k_s * (l0 - l12) / l12) * (mu_eff_perp * r_rel + &
+                        (mu_eff_para - mu_eff_perp) * u * dot_product(u, r_rel) ) ! Technically, this is L*r_rel not just L, so I avoid matricies
                 K = sdev_rel_perp * disp2 + (sdev_rel_para - sdev_rel_perp) * u * dot_product(u, disp2)             ! Technically K*W, not just K
 
 

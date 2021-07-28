@@ -6,13 +6,13 @@ module DiffusionCLs
     implicit none 
     save
 
-    integer, parameter, private                     :: dim = 3   ! Dimension must be consistent with main code
+    integer, parameter, private                     :: dim = 3!, wp = r_sp   ! Dimension must be consistent with main code
     real(wp), parameter, private                    :: pi = 4.0_wp*ATAN(1.0_wp)
     integer, private :: outputUnit
 
-    real(wp)                                        :: kbT = 0.1_wp ! Boltzmann constant in units of pN * um ! Donev: It cannot be 0.1, must have more digits to it???
+    real(wp)                                        :: kbT = 4.0E-3_wp ! Boltzmann constant in units of pN * um 
     
-    ! Donev: For isotropic diffusion, these determine the mobility/diffusion of the two monomers in each dimer
+    ! For isotropic diffusion, these determine the mobility/diffusion of the two monomers in each dimer
     ! For anisotropic diffusion, a_1 and mu_1_0 determine the translational diffusion coefficient
     ! while a_2 and mu_2_0 determine the rotational diffusion coefficient
     ! Note that this refers to the diffusion of the WHOLE dimer, not to monomers.
@@ -46,7 +46,7 @@ module DiffusionCLs
         subroutine initializeCLs(nml_unit)
             integer, intent(in), optional :: nml_unit ! Read namelist from open file if passed in
             
-            real(wp)        ::  lA, D_cm, dl
+            real(wp)        ::  linv, D_cm, dl
             
             ! Will read namelist and put in all values.
             ! Other things, like filenames to write to are not included, because this is oly needed in
@@ -56,31 +56,25 @@ module DiffusionCLs
 
             ! Gibbs-Boltzmann is indpendent of mobility:
             dl = sqrt(kbT/k_s)
-            ! Donev: Kishore, since we know this to be more accurate and work also for non-stiff springs, why did you comment it out instead of use it?
-            ! You should use the most accurate estimate available
-            !lA = ((10 * (dl ** 3) * l0 + 2 * dl * (l0 ** 3)) * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp) &
-            !+ 3.0_wp * sqrt(2.0_wp) * ((dl ** 4) + (2 * (dl ** 2) * (l0 ** 2)) + (l0 ** 4) / 3.0) * &
-            !(erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp) * sqrt(pi)) / (2.0_wp * exp(-((1 / dl ** 2) * (l0 ** 2)) / 2.0_wp)) &
-            !* dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(1.0 / dl * l0 * sqrt(2.0_wp) / 2.0_wp) + 1.0_wp))
+            linv = sqrt(2.0_wp) * sqrt(pi) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp) / (2.0_wp * exp(-l0 ** 2 / dl ** 2 / 2.0_wp) &
+            * dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp))
             
             
-            ! Donev/Kishore: Finish this code Kishore as I illustrate
-            ! Replace l0**2 with improved estimate based on <1/l^2> in tau_r in both cases
             if(anisotropicMobility) then
                
                D_cm = kbT * mu_1_0 ! Here mu_1_0 refers to translation (D_cm=2/3*D_perp+1/3*D_par)
                
-               mu_par = 3*(mu_1_0-2.0_wp/3.0_wp*mu_2_0) ! Donev: Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
+               mu_par = 3*(mu_1_0-2.0_wp/3.0_wp*mu_2_0) !Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
                mu_perp = mu_2_0 ! Here mu_2_0 refers to rotation = perp
                
-               ! Donev: Observe the change of convention here: It is not 2*mu_par but mu_par since one object not two monomers
+               !Observe the change of convention here: It is not 2*mu_par but mu_par since one object not two monomers
                tau_s = 1.0_wp / (k_s * mu_par)      ! Spring time scale involves parallel mobility only
-               tau_r = l0*l0 / (2 * kbT * mu_perp)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+               tau_r = 1.0_wp / (2 * kbT * mu_perp  * linv)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
             else   
 
                D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0) ! Center of mass diffusion coefficient
                tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
-               tau_r = l0*l0 / (2 * kbT * (mu_1_0 + mu_2_0))  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+               tau_r = 1.0_wp / (2 * kbT * (mu_1_0 + mu_2_0) * linv)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
 
             end if
             write(*,*) "CLs diffusing with D=", D_cm
@@ -163,7 +157,8 @@ module DiffusionCLs
             real(wp), dimension(dim), intent(inout)     :: r_1, r_2
             
             ! Local variables:
-            real(wp), dimension(dim) :: r_cm, r_rel, mu_1, mu_2
+            real(wp), dimension(dim) :: r_cm, r_rel 
+            real(wp)                 :: mu_1, mu_2
             
             if(immobile>2) return ! Nothing to move
 
@@ -185,10 +180,18 @@ module DiffusionCLs
                   mu_2=0.0_wp               
                end select
                
-            else
-               
-               mu_1 = mu_1_0
-               mu_2 = mu_2_0   
+            else 
+                select case(immobile)
+                case(0)
+                   mu_1= mu_1_0
+                   mu_2= mu_2_0
+                case(1)   
+                   mu_1=0.0_wp
+                   mu_2=mu_2_0
+                case(2)   
+                   mu_1=mu_1_0
+                   mu_2=0.0_wp               
+                end select  
             
             end if
             
@@ -282,7 +285,7 @@ module DiffusionCLs
                     r_cm = r_cm + sdev_cm * disp1                       ! This is really EM, since this is exact
                 end if
 
-                ! Evaluate l12 when we are at x_n. Note that this is DEPENDANT on where rd is so l12 = l12(rd). 
+                ! Evaluate l12 when we are at x_n. Note that this is DEPENDENT on where rd is so l12 = l12(rd). 
                 ! Make sure to update appropriately
                 l12 = norm2(r_rel) 
                 L_n = mu_eff * k_s * (l0 - l12) / l12
@@ -370,7 +373,7 @@ module DiffusionCLs
 
                         
             if (.not. anisotropicMobility) then
-            
+                ! These cases are if we are isotropic, then we handle immobility as follows
                 if(immobile==1) then
                    mu_1=0.0_wp
                 else
@@ -392,11 +395,11 @@ module DiffusionCLs
                 mu_u = mu_perp
                 D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
                 mu_l = mu_par ! Donev: I removed mu_eff and now it is called mu_l instead
-                D_cm = kbT * ((2.0_wp/3.0_wp)*mu_perp + (2.0_wp/3.0_wp)*mu_par)
+                D_cm = kbT * ((2.0_wp/3.0_wp)*mu_perp + (1.0_wp/3.0_wp)*mu_par)
             else ! We are doing anisotropicMobility but one monomer is immobile so mobility is cut in half when partly immobilized
                 mu_u = 0.5_wp*mu_perp
                 D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
-                mu_l = 0.5_wp*mu_parallel ! Donev: I removed mu_eff and now it is called mu_l instead
+                mu_l = 0.5_wp*mu_par ! Donev: I removed mu_eff and now it is called mu_l instead
                 D_cm = 0.0_wp ! No motion of center of mass since partly immobilized
             end if
 
@@ -414,6 +417,7 @@ module DiffusionCLs
                 theta = sqrt(2 * D_rel * dt) * norm2(disp1) / l
                 
                 N_hat = disp1 / norm2(disp1)
+                ! Evolve Brownian Motion on the unit sphere
                 call rotate(u, theta, N_hat)
 
                 ! Implicit Trapezoidal method for dl. 

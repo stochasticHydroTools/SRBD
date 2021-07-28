@@ -1108,7 +1108,7 @@ contains
 
       ! Local variables
       real (wp), dimension(nMaxDimensions) :: disp
-      integer :: p, dim, side, k, n_mobile_particles, nsteps, i
+      integer :: p, dim, side, k, n_mobile_particles, nsteps, i, immobile
       real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
       real(wp), dimension(nDimensions)    :: r_d
       logical :: dimer_particle
@@ -1166,12 +1166,7 @@ contains
                ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
                ! Also only look at odd cases, since otherwise we would double count.
 
-               ! Donev: This stuff should be called from main.f90, not here
-               ! this way you can write not every time step but every so many time steps
-               !call outputCLs(p, specie = box%particle(p)%species, position = box%particle(p)%position)
-               ! Donev: It will be wasteful on disk space here to write the positions of all the fiber blobs every time step
-               ! especially since they are not moving. So inside outputCLs perhaps you should only write particles of species not 2?
-               
+               immobile = 3 ! Start with the assumption that nothing to move               
                
                dimer_particle=.false.
                if(add_springs) then
@@ -1187,29 +1182,27 @@ contains
                if (dimer_particle .and. (mod(p,2) == 1)) then
                   n_mobile_particles = n_mobile_particles + 1 
 
+
+
                   ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
                   if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
-                     mu_1 = 0.0_wp
-                     mu_2 = mu_2_0
+                     immobile = 1
 
                   ! Case where the other end of dimer (r2) has bound actin. 
                   else if (box%particle(p)%species == 1 .and. box%particle(p+1)%species /= 1) then 
-                     
-                     mu_1 = mu_1_0
-                     mu_2 = 0.0_wp
-                     
+                     immobile = 2
+                        
                   ! Case where we have a free-floating CL. Both ends are species 1. 
-                  ! This else clause captures the case ( box%particle(p)%species == 1 .and. box%particle(p+1)%species == 1) 
-                  else  
-                     mu_1 = mu_1_0
-                     mu_2 = mu_2_0
-               
+                  else 
+                     immobile = 0
+                  
                   end if
                   
                   nsteps = nsteps_CLs
 
                   r_d = box%particle(p)%position - box%particle(p + 1)%position
 
+                  ! Unwrap Periodic BCs
                   do i = 1, nDimensions
                      if (r_d(i) > sampleCellLength(i) / 2) r_d(i) = r_d(i) - sampleCellLength(i)
                      if (r_d(i) < -sampleCellLength(i) / 2) r_d(i) = r_d(i) + sampleCellLength(i)
@@ -1218,7 +1211,7 @@ contains
                   box%particle(p)%position = r_d + box%particle(p + 1)%position    
 
                   if (debug_CLs) write(*,*) "Moving dimer made of particles ", p, p+1, " with dt=", dtime/nsteps
-                  call moveDimer(dtime/nsteps, nsteps, mu_1, mu_2, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
+                  call moveDimer(dtime/nsteps, nsteps, immobile, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
                                     
 
                else if (dimer_particle .and. (mod(p,2) == 0)) then

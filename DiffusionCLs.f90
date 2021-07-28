@@ -12,12 +12,15 @@ module DiffusionCLs
 
     real(wp)                                        :: kbT = 4.0E-3_wp ! Boltzmann constant in units of pN * um 
     
-    ! For isotropic diffusion, these determine the mobility/diffusion of the two monomers in each dimer
-    ! For anisotropic diffusion, a_1 and mu_1_0 determine the translational diffusion coefficient
-    ! while a_2 and mu_2_0 determine the rotational diffusion coefficient
-    ! Note that this refers to the diffusion of the WHOLE dimer, not to monomers.
-    ! In effect, the dimer is considered one object/body not two separate monomers in this case
     real(wp)                                        :: a_1=1.0_wp, a_2=1.0_wp, visc=1.0_wp, k_s=1.0_wp, l0=1.0_wp    
+    ! For isotropic diffusion, these determine the mobility/diffusion of the two monomers in each dimer
+    ! For anisotropic diffusion, a_1 and mu_1_0=kbT/(6*pi*eta*a_1) determine the translational diffusion coefficient
+    ! while a_2 and mu_2_0=kbT/(6*pi*eta*a_2) determine the rotational diffusion coefficient
+    ! Note that this refers to the diffusion of the WHOLE dimer as a body, not to individual monomers
+    ! Specifically, for anisotropic diffusion
+    ! D_cm = 1/2 * kbT * mu_1_0 (translational diffusion coefficient)
+    ! D_r = 2 * kbT * mu_2_0 * <l^(-2)> (rotational diffusion coefficient)
+    ! This convention ensures that if a_1=a_2 there is no difference between anisotropicDiffusion=T or F
     real(wp)                                        :: mu_1_0, mu_2_0, mu_par, mu_perp, tau_s, tau_r, tau_d ! Computed values
 
     integer                                         :: sde_integrator_enum=4, nsteps_CLs = 1 !sde_integrator_enum = 
@@ -54,10 +57,10 @@ module DiffusionCLs
             mu_1_0 = 1.0_wp / (6 * pi * visc * a_1)
             mu_2_0 = 1.0_wp / (6 * pi * visc * a_2)
 
-            ! Gibbs-Boltzmann is indpendent of mobility:
+            ! Gibbs-Boltzmann is independent of mobility:
             dl = sqrt(kbT/k_s)
-            linv = sqrt(2.0_wp) * sqrt(pi) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp) / (2.0_wp * exp(-l0 ** 2 / dl ** 2 / 2.0_wp) &
-            * dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp))
+            linv = sqrt(2.0_wp) * sqrt(pi) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp) / (2.0_wp * exp(-l0 ** 2 / dl ** 2 / 2.0_wp) * &
+                   dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp))
             
             
             ! IF we are in an anisotropic case, then our convention is as follows:
@@ -68,17 +71,16 @@ module DiffusionCLs
                D_cm = 0.5_wp * kbT * mu_1_0  ! Here mu_1_0 refers to mobility of one "monomer" (D_cm=0.5*(2/3*D_perp+1/3*D_par))
                
                mu_par = 3.0_wp * mu_1_0 - 2.0_wp * mu_2_0 !Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
-               if (mu_par < 0 ) stop "Cannot have negative mobility"
+               if (mu_par < 0 ) stop "Cannot have negative parallel mobility"
                mu_perp = mu_2_0 ! Here mu_2_0 refers to rotation = perp
                
-               !Observe the change of convention here: It is not 2*mu_par but mu_par since one object not two monomers
-               tau_s = 1.0_wp / (k_s * 2 * mu_par)      ! Spring time scale involves parallel mobility only
-               tau_r = 1.0_wp / (2 * kbT * mu_perp  * linv)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+               tau_s = 1.0_wp / (k_s * 2 * mu_par)      ! Spring time scale involves only parallel mobility 
+               tau_r = 1.0_wp / (2 * kbT * mu_perp  * linv)  ! Rotational time scale involves only perpendicular mobility
             else   
 
                D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0) ! Center of mass diffusion coefficient
                tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
-               tau_r = 1.0_wp / (kbT * (mu_1_0 + mu_2_0) * linv)  ! Rotational time scale (for non-stiff this is NOT accurate)
+               tau_r = 1.0_wp / (kbT * (mu_1_0 + mu_2_0) * linv)  ! Rotational time scale
 
             end if
             write(*,*) "CLs diffusing with D=", D_cm
@@ -216,9 +218,7 @@ module DiffusionCLs
 
             ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
             r_1 = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
-            r_2 = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
-
-            
+            r_2 = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)            
 
         
         end subroutine
@@ -238,7 +238,6 @@ module DiffusionCLs
             D_rel = kbT * mu_eff                            ! Diffusive coeff for r_rel
             D_cm = kbT * mu_1 * mu_2 / (mu_eff)        ! Diff coeff for r_cm
 
-
             ! Brownian Motion with Deterministic Drift Realization. 
             do i = 1, nsteps
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
@@ -249,7 +248,7 @@ module DiffusionCLs
                 sdev_cm = sqrt(2 * D_cm * dt)
                 sdev_rel = sqrt(2 * D_rel * dt)
 
-                if (evolve_r_cm) then
+                if(evolve_r_cm .and. (D_cm>0.0_wp)) then
                     r_cm = r_cm + sdev_cm * disp1                 
                 end if
 
@@ -288,7 +287,7 @@ module DiffusionCLs
                 ! Will want to apply one Implicit Trapezoidal step
 
                 ! COM STEP using Euler-Maruyama
-                if (evolve_r_cm) then
+                if(evolve_r_cm .and. (D_cm>0.0_wp)) then
                     call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                     r_cm = r_cm + sdev_cm * disp1                       ! This is really EM, since this is exact
                 end if
@@ -345,7 +344,7 @@ module DiffusionCLs
 
 
                 ! Euler-Maruyama for r_cm
-                if (evolve_r_cm) then ! Donev: In all of these places check if D_cm>0.0_wp first
+                if(evolve_r_cm .and. (D_cm>0.0_wp)) then
                     call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                     r_cm = r_cm + sdev_cm * disp1                       
                 end if
@@ -376,11 +375,9 @@ module DiffusionCLs
             ! Local Variables
             integer                                     :: i
             real(wp), dimension(dim)                    :: u, u_n, disp1, disp3, N_hat
-            real(wp)                                    :: L_n, D_rel, G, G_pred, theta, sdev_cm, D_cm, mu_1, mu_2
+            real(wp)                                    :: L_n, D_u, D_l, G, G_pred, theta, sdev_cm, D_cm, mu_1, mu_2
             real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_par, sdev_l
-            
-
-                        
+                                    
             if (.not. anisotropicMobility) then
                 ! These cases are if we are isotropic, then we handle immobility as follows
                 if(immobile==1) then
@@ -395,23 +392,24 @@ module DiffusionCLs
                 end if
 
                 mu_l = mu_1 + mu_2 
-                D_rel = kbT * mu_l
+                mu_u = mu_l
                 D_cm = kbT * mu_1 * mu_2 / mu_l        ! Diffusion coeff for r_cm
                 
             else if(immobile<=0) then ! Both monomers are mobile
-                ! Donev: It is important to note that here mu_u=mu_perp not 2*mu_perp
-                ! That is, mu_perp and mu_par refer to the free dimer effective mobility not to each monomer individually (monomers don't really exist here)
-                ! Kishore: Using Convention #2 I think this should change though?
-                mu_u = 2.0_wp * mu_perp  ! mu_2_0 = 2 mu_perp
-                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
+
+                mu_u = 2.0_wp * mu_perp
                 mu_l = 2.0_wp * mu_par 
                 D_cm = 0.5_wp * kbT * ((2.0_wp/3.0_wp)*mu_perp + (1.0_wp/3.0_wp)*mu_par)
-            else ! We are doing anisotropicMobility but one monomer is immobile so mobility is cut in half when partly immobilized
+                
+            else ! We are doing anisotropicMobility but one monomer is immobile so rotational mobility is cut in half when partly immobilized
+            
                 mu_u = mu_perp
-                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
-                mu_l = 1.0_wp*mu_par 
+                mu_l = mu_par 
                 D_cm = 0.0_wp ! No motion of center of mass since partly immobilized
+                
             end if
+            D_u = kbT * mu_u ! Diffusion coefficient for u
+            D_l = kbT * mu_l ! Diffusion coefficient for l
 
             ! Change coordinates
             l = norm2(r_rel)
@@ -424,7 +422,7 @@ module DiffusionCLs
                 ! Rodrigues Rotation Formula
                 call NormalRNGVec(numbers = disp1, n_numbers = dim) ! Mean zero and variance one
                 ! Rotating angle
-                theta = sqrt(2 * D_rel * dt) * norm2(disp1) / l
+                theta = sqrt(2 * D_u * dt) * norm2(disp1) / l
                 
                 N_hat = disp1 / norm2(disp1)
                 ! Evolve Brownian Motion on the unit sphere
@@ -435,8 +433,7 @@ module DiffusionCLs
 
                 ! Random variate for the scalar equation dl
                 call NormalRNG(disp2) ! Always a scalar 
-                sdev_l = sqrt(2 * kbT * mu_l * dt) * disp2
-
+                sdev_l = sqrt(2 * D_l * dt) * disp2
 
                 ! Predictor
                 l_pred = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + sdev_l
@@ -480,7 +477,7 @@ module DiffusionCLs
                 real(wp), intent(in)        :: l
                 real(wp)                    :: explicitTerm
 
-                explicitTerm = 2 * kbT * mu_l / l + l0 * mu_l * k_s
+                explicitTerm = 2 * D_l / l + l0 * mu_l * k_s
 
             end function explicitTerm
 

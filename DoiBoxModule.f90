@@ -1182,8 +1182,6 @@ contains
                if (dimer_particle .and. (mod(p,2) == 1)) then
                   n_mobile_particles = n_mobile_particles + 1 
 
-
-
                   ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
                   if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
                      immobile = 1

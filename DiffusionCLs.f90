@@ -60,21 +60,25 @@ module DiffusionCLs
             * dl * l0 + sqrt(2.0_wp) * sqrt(pi) * (dl ** 2 + l0 ** 2) * (erf(l0 * sqrt(2.0_wp) / dl / 2.0_wp) + 1.0_wp))
             
             
+            ! IF we are in an anisotropic case, then our convention is as follows:
+            ! mu_1_0 refers to translational mobility of a monomer. 
+            ! mu_2_0 refers to the perpendicular/rotational mobility, mu_perp
             if(anisotropicMobility) then
                
-               D_cm = kbT * mu_1_0 ! Here mu_1_0 refers to translation (D_cm=2/3*D_perp+1/3*D_par)
+               D_cm = 0.5_wp * kbT * mu_1_0  ! Here mu_1_0 refers to mobility of one "monomer" (D_cm=0.5*(2/3*D_perp+1/3*D_par))
                
-               mu_par = 3*(mu_1_0-2.0_wp/3.0_wp*mu_2_0) !Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
+               mu_par = 3.0_wp * mu_1_0 - 2.0_wp * mu_2_0 !Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
+               if (mu_par < 0 ) stop "Cannot have negative mobility"
                mu_perp = mu_2_0 ! Here mu_2_0 refers to rotation = perp
                
                !Observe the change of convention here: It is not 2*mu_par but mu_par since one object not two monomers
-               tau_s = 1.0_wp / (k_s * mu_par)      ! Spring time scale involves parallel mobility only
+               tau_s = 1.0_wp / (k_s * 2 * mu_par)      ! Spring time scale involves parallel mobility only
                tau_r = 1.0_wp / (2 * kbT * mu_perp  * linv)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
             else   
 
                D_cm = kbT * mu_1_0 * mu_2_0 / (mu_1_0 + mu_2_0) ! Center of mass diffusion coefficient
                tau_s = 1.0_wp / (k_s * (mu_1_0 + mu_2_0))       ! Spring time scale
-               tau_r = 1.0_wp / (2 * kbT * (mu_1_0 + mu_2_0) * linv)  ! Rotational time scale for stiff springs (for non-stiff this is NOT accurate)
+               tau_r = 1.0_wp / (kbT * (mu_1_0 + mu_2_0) * linv)  ! Rotational time scale (for non-stiff this is NOT accurate)
 
             end if
             write(*,*) "CLs diffusing with D=", D_cm
@@ -159,6 +163,7 @@ module DiffusionCLs
             ! Local variables:
             real(wp), dimension(dim) :: r_cm, r_rel 
             real(wp)                 :: mu_1, mu_2
+
             
             if(immobile>2) return ! Nothing to move
 
@@ -212,6 +217,9 @@ module DiffusionCLs
             ! Use r_CM and r_rel to reconstruct the displacement of each cross-linker
             r_1 = r_rel + (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
             r_2 = (r_cm * (mu_1 + mu_2) - mu_2 * r_rel) / (mu_1+ mu_2)
+
+            
+
         
         end subroutine
          
@@ -369,7 +377,8 @@ module DiffusionCLs
             integer                                     :: i
             real(wp), dimension(dim)                    :: u, u_n, disp1, disp3, N_hat
             real(wp)                                    :: L_n, D_rel, G, G_pred, theta, sdev_cm, D_cm, mu_1, mu_2
-            real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_par
+            real(wp)                                    :: disp2, l, l_pred, explicit, mu_u, mu_l, sdev_cm_perp, sdev_cm_par, sdev_l
+            
 
                         
             if (.not. anisotropicMobility) then
@@ -392,14 +401,15 @@ module DiffusionCLs
             else if(immobile<=0) then ! Both monomers are mobile
                 ! Donev: It is important to note that here mu_u=mu_perp not 2*mu_perp
                 ! That is, mu_perp and mu_par refer to the free dimer effective mobility not to each monomer individually (monomers don't really exist here)
+                ! Kishore: Using Convention #2 I think this should change though?
+                mu_u = 2.0_wp * mu_perp  ! mu_2_0 = 2 mu_perp
+                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
+                mu_l = 2.0_wp * mu_par 
+                D_cm = 0.5_wp * kbT * ((2.0_wp/3.0_wp)*mu_perp + (1.0_wp/3.0_wp)*mu_par)
+            else ! We are doing anisotropicMobility but one monomer is immobile so mobility is cut in half when partly immobilized
                 mu_u = mu_perp
                 D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
-                mu_l = mu_par ! Donev: I removed mu_eff and now it is called mu_l instead
-                D_cm = kbT * ((2.0_wp/3.0_wp)*mu_perp + (1.0_wp/3.0_wp)*mu_par)
-            else ! We are doing anisotropicMobility but one monomer is immobile so mobility is cut in half when partly immobilized
-                mu_u = 0.5_wp*mu_perp
-                D_rel = kbT * mu_u ! Diffusion coefficient for u, given the perpendicular mobility
-                mu_l = 0.5_wp*mu_par ! Donev: I removed mu_eff and now it is called mu_l instead
+                mu_l = 1.0_wp*mu_par 
                 D_cm = 0.0_wp ! No motion of center of mass since partly immobilized
             end if
 
@@ -425,10 +435,11 @@ module DiffusionCLs
 
                 ! Random variate for the scalar equation dl
                 call NormalRNG(disp2) ! Always a scalar 
-                disp2 = sqrt(2 * kbT * mu_l * dt) * disp2
+                sdev_l = sqrt(2 * kbT * mu_l * dt) * disp2
+
 
                 ! Predictor
-                l_pred = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + disp2
+                l_pred = l + 0.5_wp * dt * L_n * l + dt * explicitTerm(l) + sdev_l
                 l_pred = l_pred / (1 - dt * L_n / 2)
 
                 ! Corrector
@@ -439,8 +450,9 @@ module DiffusionCLs
                     explicit = explicitTerm(0.5_wp * (l + l_pred))
                 end select
 
-                l = l + 0.5_wp * dt * (L_n * l) + explicit + disp2
+                l = l + 0.5_wp * dt * (L_n * l) + explicit + sdev_l
                 l = l / (1 - dt * L_n / 2)
+
 
                 ! Euler-Maruyama for r_cm if D_cm>0
                 if(evolve_r_cm .and. (D_cm>0.0_wp)) then
@@ -449,7 +461,7 @@ module DiffusionCLs
                     sdev_cm_perp = sqrt(kbT * mu_perp * dt)    
                     sdev_cm_par = sqrt(kbT * mu_par * dt)
                     r_cm = r_cm + sdev_cm_perp * disp3 + &
-                     (sdev_cm_par - sdev_cm_perp) * u_n * dot_product(u_n, disp3)   ! Dot product with the initial u vector       
+                     (sdev_cm_par - sdev_cm_perp) * u_n * dot_product(u_n, disp3)   ! Dot product with the initial u vector  
                   else                
                     sdev_cm = sqrt(2 * D_cm * dt)
                     call NormalRNGVec(numbers = disp3, n_numbers = dim) ! Mean zero and variance one

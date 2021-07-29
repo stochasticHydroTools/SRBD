@@ -70,9 +70,11 @@ module DiffusionCLs
                
                D_cm = 0.5_wp * kbT * mu_1_0  ! Here mu_1_0 refers to mobility of one "monomer" (D_cm=0.5*(2/3*D_perp+1/3*D_par))
                
-               mu_par = 3.0_wp * mu_1_0 - 2.0_wp * mu_2_0 !Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
-               if (mu_par < 0 ) stop "Cannot have negative parallel mobility"
+               mu_par = 3.0_wp * mu_1_0 - 2.0_wp * mu_2_0 ! Compute mu_par from mu_1_0=mu_cm and mu_2_0=mu_r
+               if (mu_par <= 0 ) stop "Cannot have negative or zero parallel mobility" ! Zero mobility means tau_s = infinity
                mu_perp = mu_2_0 ! Here mu_2_0 refers to rotation = perp
+
+               write(*,*) "CLs: mu_par = ", mu_par, " mu_perp = ", mu_perp
                
                tau_s = 1.0_wp / (k_s * 2 * mu_par)      ! Spring time scale involves only parallel mobility 
                tau_r = 1.0_wp / (2 * kbT * mu_perp  * linv)  ! Rotational time scale involves only perpendicular mobility
@@ -502,7 +504,6 @@ module DiffusionCLs
             cross(3) = a(1) * b(2) - a(2) * b(1)
         end function cross
 
-        ! Donev: Changed this to a subroutine since it has side effects (calls RNG)
         subroutine randomDimer(randomDisp)
             real(wp), dimension(dim), intent (out) :: randomDisp
             

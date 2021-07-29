@@ -19,7 +19,7 @@
    ! Blocking reaction: 3+2->3+4 ! Catalyst
    
    reactionNetwork(:,:,1) = 1 1 0 0, 0 1 1 0 ! Binding reaction: 1+2->3+2
-   reactionNetwork(:,:,2) = 0 1 1 0, 0 0 1 1 ! Blocking reaction: 3+2->3+4
+   reactionNetwork(:,:,2) = 0 1 1 0, 1 1 0 0 ! Reverse reaction: 3+2->1+2
    reactionRate(1:2) = 10.0  100.0 ! Large rate will make it react as soon as it overlaps
    
    inputTimestep = 0.10 ! Time step size dt

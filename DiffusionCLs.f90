@@ -446,7 +446,7 @@ module DiffusionCLs
                 case(4) ! 0.5_wp * dt * (G + G_pred)
                     explicit = 0.5_wp * dt * (explicitTerm(l) + explicitTerm(l_pred)) 
                 case(5) ! g(1/2*(x^n+x_pred))
-                    explicit = explicitTerm(0.5_wp * (l + l_pred))
+                    explicit = dt * explicitTerm(0.5_wp * (l + l_pred))
                 end select
 
                 l = l + 0.5_wp * dt * (L_n * l) + explicit + sdev_l

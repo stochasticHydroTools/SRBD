@@ -50,7 +50,7 @@
   a_1 = 0.10,
   a_2 = 0.10,
   visc = 1.0,
-  sde_integrator_enum = 4 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration
+  sde_integrator_enum = 5 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration
   add_springs = T ! If false, do monomers for the CLs, not dimers
   debug_CLs = .false.
   n_dimers = 50

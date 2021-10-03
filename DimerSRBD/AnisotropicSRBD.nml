@@ -47,8 +47,8 @@
 &diffCLs
   k_s = 10.0,
   l0 =  0.1,
-  a_1 = 0.10,
-  a_2 = 0.10,
+  a_1 = 0.10,    ! mu_1_0 refers to translational mobility 
+  a_2 = 0.10,    ! mu_2_0 refers to perpendicular mobility
   visc = 1.0,
   sde_integrator_enum = 5 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration
   add_springs = T ! If false, do monomers for the CLs, not dimers

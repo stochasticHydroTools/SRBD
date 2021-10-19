@@ -2,7 +2,7 @@ SRC_DOI=./
 # You must also obtain the HydroGrid library from
 # https://github.com/stochasticHydroTools/HydroGrid
 # and point to the directory here:
-SRC_HYDROGRID=../../HydroGrid
+SRC_HYDROGRID=../HydroGrid
 
 SRC_HYDROLIB=$(SRC_HYDROGRID)/src
 
@@ -18,7 +18,7 @@ CC=gcc -O3 # Optimized
 # GNU:
 # We require newer versions of gfortran (>4.6) to allow for C interoperability
 FC_O=gfortran -O3 -Wall -ffree-line-length-none  # Optimized
-FC_g=gfortran -g -fbounds-check -Wall -ffree-line-length-none # Debugging
+FC_g=gfortran -Og -g -fbounds-check -Wall -ffree-line-length-none # Debugging
 
 # Choose level of optimization:
 FC=$(FC_O) # For OPTIMIZED code, use for production code

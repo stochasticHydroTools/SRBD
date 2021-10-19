@@ -14,7 +14,7 @@ LIBRARIES= #-lquadmath
 
 # List of source codes
 CSOURCES=
-FSOURCES=DoiBoxModule.f90 MinHeapModule.f90
+FSOURCES=DoiBoxModule.f90 MinHeapModule.f90 DiffusionCLs.f90
 
 # From HydroGrid library:
 CSOURCES += RNGs.c visit_writer.c
@@ -59,10 +59,13 @@ VisitWriter.o: VisitWriter.f90
 HydroGridModule.o: HydroGridModule.f90 FFTW.o VisitWriter.o
 	$(FC) -c $<
 
+DiffusionCLs.o: DiffusionCLs.f90 RNG.o Precision.o MinHeapModule.o
+	$(FC) -c $<
+
 MinHeapModule.o: MinHeapModule.f90
 	$(FC) -c $<
 
-DoiBoxModule.o: DoiBoxModule.f90 MinHeapModule.o RNG.o
+DoiBoxModule.o: DoiBoxModule.f90 MinHeapModule.o DiffusionCLs.o RNG.o
 	$(FC) -c $<
 
 DOI.exe: main.f90 $(OBJECTS) $(LIBRARIES)

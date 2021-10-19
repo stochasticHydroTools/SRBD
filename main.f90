@@ -14,7 +14,7 @@ program main
    
    ! Local variables
    integer :: nameListUnit
-   integer :: iStep, particle, species
+   integer :: iStep, particle, species, p
    real (wp) :: timestep
 
    character(LEN=1024) :: basename="" ! Base of filename used for reading/writing files
@@ -72,9 +72,13 @@ program main
          timestep = real(nSampleStep*timestep, dp), fileUnit=nameListUnit, fileNamePrefix=TRIM(basename))
 
    end if
+
+   ! We have now read all the namelists   
+   close(nameListUnit)
+
    write(*,*) 'Starting equilibration loop'
    
-   ! Skip a number of steps in the beginning
+   ! Skip a number of steps in the beginning if desired
    do iStep = -nEquilibrationStep, -1 ! Count these as negative time steps
       call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
    end do
@@ -83,18 +87,22 @@ program main
 
    do iStep = 0, nSteps ! Go one more step so as to write files at the end
                
-      if ((nOutputStep > 0) .and. (Mod(iStep, nOutputStep) == 0)) then ! Output some values to screen
+      if (nOutputStep > 0) then
+      if (Mod(iStep, nOutputStep) == 0) then ! Output some values to screen
+      
       ! Donev TODO: Open a file with a proper file name and write to it instead of fort.21 here (see DSMC code for example)
-      if(.true.) then ! Output minimal stuff to minimize size of files
+      if(.false.) then ! Output minimal stuff to minimize size of files
          write(9,*) box%globalTime, box%nParticles(1)/domainVolume ! Only first species is enough for stuff like A+B<->C due to conservation laws
-      else   
+      else if(.false.) then
          write(9,*) box%globalTime, box%nParticles(1:)/domainVolume ! Average number density       
          write(21,*) box%globalTime, box%nParticles ! Total number of particles
          write(22,*) box%globalTime, box%reactionCount(1:totalReactions) ! Donev: also write total number of reactions up to this time in a file 
       end if       
       end if
+      end if
       
-      if ((nSampleStep > 0) .and. (Mod(iStep, nSampleStep) == 0)) then
+      if (nSampleStep > 0) then
+      if (Mod(iStep, nSampleStep) == 0) then
          call getState (box)
          ! Donev: The temperature can be used to save some other scalar field such as an order parameter / collective coordinate
          ! For the A+B->0 a good (conserved) order parameter is the difference A-B         
@@ -105,8 +113,10 @@ program main
                  box%numberDensity(:, :, :, 1)+box%numberDensity(:, :, :, 2)+2*box%numberDensity(:, :, :, 3), & ! For A+B->C write A+B+2*C
                  concentration=box%numberDensity(:, :, :, 1:nSpecies))
       end if
+      end if
       
-      if ((nStatsStep > 0) .and. (Mod(iStep, nStatsStep) == 0)) then ! Write results to files
+      if (nStatsStep > 0) then
+      if (Mod(iStep, nStatsStep) == 0) then ! Write results to files
          write(*,*) iStep, "t=", box%globalTime, " n_particles=", box%nParticles(0), &
             " fractions=", real(box%nParticles(1:nSpecies))/real(box%nParticles(0))
          write(*,*) "Number of reactions is:", box%reactionCount(0), "=", box%reactionCount(1:totalReactions)
@@ -114,11 +124,28 @@ program main
          if(nSampleStep > 0) call writeToFiles(grid, iStep) ! This will write files from HydroGrid analysis
                   
       end if
+      end if
+
+      ! Donev/Kishore: Output positions of just CLs
+      if(nOutputCLsStep>0) then
+      if(mod(iStep,nOutputCLsStep) == 0) then
+         write(*,*) iStep, " t=", box%globalTime, " n_particles=", box%nParticles(1:nSpecies), &
+                    " n_reactions=", box%reactionCount(1:totalReactions)
+         call outputCLs(step=iStep, time=box%globalTime) ! Mark beginning of output
+         do p = lbound(box%particle,1), ubound(box%particle,1)
+            call outputCLs(step=iStep, particle=p, specie = box%particle(p)%species, position = box%particle(p)%position)
+         end do
+         call outputCLs(step=0) ! Empty line
+      end if
+      end if
 
       ! Move to the next point in time:     
-      if(iStep<nSteps) call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
+      if(iStep<nSteps) then
+         call updateDoiBox(box,timestep)  ! moves, sorts, and reacts particles.
+      end if
        
    end do
+   call destroyCLs()  
    write(*,*) 'Completed time loop'
    write(*,*) 'Total reaction count is ', box%reactionCount(0), "=", box%reactionCount(1:totalReactions)  
    if(IRDME_test) then

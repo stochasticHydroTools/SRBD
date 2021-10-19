@@ -1,17 +1,25 @@
-! Note: Reservoirs are not really working at present, only periodic BCs are working
+ ! Note: Reservoirs are not really working at present, only periodic BCs are working
 module DoiBoxModule
    use MinHeapModule
    use BoxLibRNGs ! Random number generation
+   use DiffusionCLs
    implicit none
    save
    
    ! Change for different reaction schemes and recompile:
+   integer, parameter :: nSpecies = 4, nReactions = 2 ! 1=free CL end, 2=unbound fiber bead, 3=bound CL end, 4=bound fiber bead
+      ! If we want species 1 to convert to species 2 only, we have to use CATALYST reaction, and then we can add
+      ! Binding reaction: 1+2->3+2 ! Catalyst
+      ! If we want to block off location where binding happened from further binding, we can add a very fast reaction
+      ! Blocking reaction: 3+2->3+4 ! Catalyst
+      ! For now we do not add any reverse reactions (unbinding)
+      
    !integer, parameter :: nSpecies = 3, nReactions = 7 ! BPM model
    !integer, parameter :: nSpecies = 3, nReactions = 2 ! A<->B+C test in IRDME
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->B, 0->A equilibrium (from Radek Erban)
    !integer, parameter :: nSpecies = 2, nReactions = 2 ! A+B->0, A+A->0, rate test in IRDME
    !integer, parameter :: nSpecies = 3, nReactions = 4 ! 0->A, A->0, A+B->0, A+A->0, test if selection is uniform for each cell/particle/pair
-   integer, parameter :: nSpecies = 3, nReactions = 2 ! 0->A+B, C->A+B
+   !integer, parameter :: nSpecies = 3, nReactions = 2 ! 0->A+B, C->A+B
    !integer, parameter :: nSpecies = 1, nReactions = 2 ! A+A->A, 0->A
 
 !--------------------------------------
@@ -62,10 +70,10 @@ module DoiBoxModule
    !integer, parameter :: wp = sp ! Single precision
    
    ! Choose dimensionality:
-   integer, parameter :: nDimensions = 2 ! 1D, 2D and 3D work but remember to change lines below also
+   integer, parameter :: nDimensions = 3 ! 1D, 2D and 3D work but remember to CHANGE LINES BELOW also
    !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/3, 1, 0, 0/) ! 1D
-   integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
-   !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/27, 1, 1, 1/) ! 3D
+   !integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/9, 1, 1, 0/) ! 2D
+   integer, dimension (0:nMaxDimensions), parameter :: neighborhoodSize = (/27, 1, 1, 1/) ! 3D
    
    ! IMPORTANT: Turn off assertions and tracing/testing for getting optimized code!
    !logical, parameter :: isAssertsOn =.true., printDebug=.true. ! Debug
@@ -244,9 +252,9 @@ contains
 ! These need to be called once per processor per Doi domain (level)
 
 subroutine readDoiParameters (fileUnit) ! Read parameters from a NAMELIST file
-   integer, intent(in) :: fileUnit ! If positive, the unit to read the namelist from
+   integer, intent(in), optional :: fileUnit ! If present, the unit to read the namelist from
 
-   integer :: nameListFile = 15
+   integer :: nameListFile = 37
 
    namelist / DoiBoxOptions / reactionRate, reactionNetwork, reactionScheme, numberDensity, &
       speciesDiffusivity, speciesDiameter, sampleCellLength, nSampleCells, &
@@ -255,15 +263,18 @@ subroutine readDoiParameters (fileUnit) ! Read parameters from a NAMELIST file
       inputTimestep, strangSplitting, randomShift, &
       nMaxParticlesPerCell, diffuseByHopping, problem_type
    
-   if (fileUnit<=0) then ! Default
+   if (.not.present(fileUnit)) then ! Default
       if(writeOutput) write(*,*) "Reading Doi parameters from namelist file"
       open (nameListFile, file=  "DoiBoxOptions.nml", status="old", action="read")
    else 
       nameListFile=fileUnit
    end if
    read (nameListFile, nml=DoiBoxOptions)
-   if (fileUnit<=0) close (nameListFile)
-   
+   if (.not.present(fileUnit)) close (nameListFile)
+      
+   ! Kishore/Donev: Read cross-linker parameters
+   call readCLParameters(fileUnit)
+
    if(any(nSampleCells(nDimensions+1:nMaxDimensions)/=1)) stop "Must have only one sampling cell in all trivial dimensions"
 
 end subroutine readDoiParameters
@@ -294,6 +305,8 @@ subroutine initializeDoiParameters (writeToOutput)
    if(writeOutput) write(*,*) 'The domain has volume', domainVolume, 'and each cell has volume', DoiCellVolume
    if(writeOutPUT) write(*,*) 'Sample cell length:', sampleCellLength
    if(writeOutput) write(*,*) 'Doi timestep = ', inputTimestep
+
+   call initializeCLs()    ! Kishore: To initialize cross linker parameters.
 
 end subroutine initializeDoiParameters
 
@@ -397,9 +410,102 @@ subroutine createDoiBox (box, boundaryType, lbSample, ubSample)
          
 end subroutine createDoiBox
 
-
-
 subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
+   type (DoiBox), target, intent (inout) :: box
+   
+   integer                             :: nParticles, specie,i,j,k,nCells, particle, iParticle, blob, fiberUnit
+   real(wp)                            :: random(nMaxDimensions), randomDisp(nDimensions)
+   
+   ! Initialize without bound dimers:
+   box%nParticles (:) = 0 ! No particles of any other species except unbound particles
+   if(nSpecies<2) stop 'This SRBD code assumes species 1 = actin binding domains/CL ends, and 2 = actin fiber blobs'
+   if(add_springs) then ! CLs are dimers
+      box%nParticles(1) = 2*n_dimers
+   else ! Just do freely-diffusing monomers for testing
+      box%nParticles(1) = n_dimers
+   end if
+   box%nParticles(2) = n_fiber_blobs
+    
+   ! Estimate the average number of particles in each species:
+   do specie=1, nSpecies
+      if(writeOutput) write (*,*) "Number of particles of species ", specie, " is ", box%nParticles(specie)
+   end do
+   box%nParticles(0) = sum(box%nParticles(1:nSpecies)) ! Total number of particles
+
+   nParticles = ceiling ((1+fractionExtraParticles)*box%nParticles (0))
+   if(writeOutput) write(*,*) "Total number of particles = ", box%nParticles(0), " allocated=", nParticles
+   box%nMaxParticles = nParticles
+   
+   if(nMaxParticlesPerCell<=0) then
+      nMaxParticlesPerCell = ceiling ( (10.0_wp * nParticles) / nDoiCells(0) )
+      write(*,*) "Setting nMaxParticlesPerCell=", nMaxParticlesPerCell
+   end if
+
+   allocate ( box%particle(nParticles) )
+   if (reactionScheme==RDME) then
+      allocate ( box%particlesSortedByCell(nParticles) )
+      box%freeParticle=box%nParticles(0)+1
+   else ! We use an LLC data structure
+      !allocate ( box%previousParticle(nParticles) )
+      allocate ( box%nextParticle(nParticles) )
+      box%freeParticle=box%nParticles(0)+1
+      do particle=box%freeParticle, box%nMaxParticles-1
+         box%nextParticle(particle)=particle+1
+      end do
+      box%nextParticle(box%nMaxParticles)=0 ! End of list of free particles
+   end if
+   
+   write(*,*) "Starting to fill domain with particles"
+
+   ! Now actually initialize the domain with particles
+   ! DONEV (easy to find marker in code)
+   do iParticle = 1, n_dimers
+      call UniformRNGVec (random, nMaxDimensions)
+      if(add_springs) then ! Insert a dimer at a random location and with random orientation
+         ! Start by uniformly sampling the ODD particle dimer, then set the other end of dimer equal to that
+         box%particle(2*iParticle-1)%position = random*domainLength
+         
+         ! Kishore: Added random orientation and length, but on average will be l0 length.
+         call randomDimer(randomDisp)
+         box%particle(2*iParticle)%position = box%particle(2*iParticle-1)%position + randomDisp
+         
+         ! Set both species to be 1. 
+         box%particle(2*iParticle-1)%species = 1
+         box%particle(2*iParticle)%species = 1
+         
+      else ! Insert a monomer at a random location
+         box%particle(iParticle)%position = random*domainLength
+         box%particle(iParticle)%species = 1
+      end if   
+   end do
+   ! Kishore: Want to read in the first n_fiber_blobs from file blobInitializer in nml file.
+   open(newunit = fiberUnit, file = blobInitializer)
+   do blob=1, n_fiber_blobs
+      iParticle=box%nParticles(1)+blob  ! Kishore: So first 2*nDimers are species 1, then the next 2*nDimers + n_fiber_blobs are species 2
+      ! Read in from file. 
+      read(fiberUnit, *) box%particle(iParticle)%position(:)      
+      box%particle(iParticle)%species = 2     
+   end do
+   close(fiberUnit)
+   
+   ! Donev: It is important now to fix up periodic BCs since some particles may have been initialized outside of the box:
+   call mover(box,0.0_wp) ! Doesn't actually move the particles, just fixes up BCs
+
+   if (reactionScheme==IRDME) then
+      call initializeIRDME(box)
+   else
+      call sorter(box)
+   end if   
+   write (*,*) "Total number of particles at the beginning is ", box%nParticles(0), "=", box%nParticles(1:nSpecies)
+   
+   if (isAssertsOn) then
+      box%initialParticleCount = box%nParticles
+   end if
+
+end subroutine initializeDoiBox
+
+! This is the old routine for initialization in SRBD, which is based on number densities
+subroutine initializeDoiBox_SRBD (box) ! Initialize with uniform equilibrium values
    type (DoiBox), target, intent (inout) :: box
 
    integer, dimension(nMaxDimensions) :: iCell
@@ -501,7 +607,7 @@ subroutine initializeDoiBox (box) ! Initialize with uniform equilibrium values
       box%initialParticleCount = box%nParticles
    end if
 
-end subroutine initializeDoiBox
+end subroutine initializeDoiBox_SRBD
 
 
 
@@ -699,7 +805,7 @@ subroutine updateDoiBox(box,timestep)
 
    if (strangSplitting) then
       call mover(box,0.5_wp*timestep,randomShiftDist)
-      ! call cleanParticles(box) ! Do this now even if not necessary      
+      ! call cleanParticles(box) ! Do this now even if not necessary  
       if (nReactions>0) call reactor(box,timestep)
       call mover(box,0.5_wp*timestep,-randomShiftDist)
       call cleanParticles(box) ! Remove empty spaces
@@ -773,7 +879,7 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
    do iSpecies = 1, nSpecies       
    
       ! Decide how many particles to generate:
-      if(addDensityFluctuations) then ! Generate a Poisson number of particles for each species
+      if(addDensityFluctuations) then ! Generate a Poisson number of particles for each species; Kishore: True right now.
          mean = sampleCellVolume * cellNumberDensity(iSpecies)
          if(usePoisson) then
             call PoissonRNG (nParticlesInCell, mean)
@@ -809,6 +915,7 @@ subroutine fillSamplingCell(box, iCell, cellNumberDensity)
             box%particle(iParticle)%species = iSpecies
          end if
          
+         ! Update both total species count and individual species count
          box%nParticles(0) = box%nParticles(0) + 1
          box%nParticles(iSpecies) = box%nParticles(iSpecies) + 1
          call updateFreeParticle(box)
@@ -886,6 +993,7 @@ subroutine mover (box,timestep,randomShift)
    integer :: initialSpecies
    real (wp) :: dtime
    real (wp), dimension (nDimensions) :: initialPosition
+   logical, parameter :: evolve_r_cm = .true., test_actin = .true.
    !integer :: nLeaving, nEntering ! Donev: These are not really useful
 
    if (IRDME_trace) return
@@ -996,6 +1104,145 @@ contains
 
    subroutine brownianMover(box,dtime)
       type (DoiBox), target :: box
+      real (wp), intent(in) :: dtime         
+
+      ! Local variables
+      real (wp), dimension(nMaxDimensions) :: disp
+      integer :: p, dim, side, k, n_mobile_particles, nsteps, i, immobile
+      real (wp) :: D, probabilities(0:2*nDimensions), r, prob, mu_1, mu_2
+      real(wp), dimension(nDimensions)    :: r_d
+      logical :: dimer_particle
+
+
+      ! PARALLEL: This is the main loop that can benefit from parallelization
+      !    It is a loop over particles, some of which can be no-ops
+      !    So it is important here to use cyclic distribution over threads
+      n_mobile_particles=0 ! Donev/Kishore: Count number of still mobile particles
+      do p =lbound(box%particle,1),ubound(box%particle,1)
+         if (box%particle(p)%species > 0) then
+            D = speciesDiffusivity(box%particle(p)%species)
+            
+            disp = 0.0_wp            
+            if(diffuseByHopping>=1) then ! Diffuse by random hops on a lattice   
+            
+               ! Compute the probability of jumping in each direction:
+               k=0  
+               probabilities(0) = 0.0_wp
+               do dim=1, nDimensions
+                  do side=1, 2 ! Left/down or right/up hop
+                     k=k+1
+                     prob = D*dtime/DoiCellLength(dim)**2
+                     probabilities(k) = probabilities(k-1) + prob
+                     probabilities(0) = probabilities(0) + prob
+                  end do
+               end do
+               
+               probabilities(0) = 1.0_wp - probabilities(0) ! Probability of staying in place
+               if(probabilities(0)<0.0_wp) stop "Time step too large (violates CFL condition) for diffusion by hopping"
+               
+               ! Find a direction to jump in, or stay in place (note that disp=0 by default above)
+               call UniformRNG(r)
+               k=0
+               !write(*,*) "particle=", p, " r=", r, " prob_stay=", probabilities(0)
+               FindHop: do dim=1, nDimensions
+                  do side=1, 2 ! Left/down or right/up hop
+                     k=k+1
+                     if(r < probabilities(k)) then ! Hop in this direction
+                        disp(dim) = (2*side-3)*DoiCellLength(dim)
+                        !write(*,*) "hop=", k, dim, (2*side-3)
+                        exit FindHop
+                     end if      
+                  end do
+               end do FindHop
+
+               box%particle(p)%position = box%particle(p)%position + disp
+                     
+            else ! Continuous random walk  
+                     
+
+               ! Cross linkers must come in pairs, but one could be attached to actin (seperate species)
+               ! In this case, we would still want to simulate as a spring in some cases. 
+               ! So what matters is that EITHER the p+1th or the pth species are of the CL species
+               ! If only one is, then it is a bound CL. If neither, then it is a free CL. 
+               ! Also only look at odd cases, since otherwise we would double count.
+
+               immobile = 3 ! Start with the assumption that nothing to move               
+               
+               dimer_particle=.false.
+               if(add_springs) then
+                  if(box%particle(p)%species == 1) dimer_particle=.true.
+                  if((p<ubound(box%particle,1)) .and. (mod(p,2) == 1)) then
+                     if(box%particle(p+1)%species == 1) dimer_particle=.true.
+                  end if
+                  if((p>lbound(box%particle,1)) .and. (mod(p,2) == 0)) then
+                     if(box%particle(p-1)%species == 1) dimer_particle=.true.
+                  end if
+               end if   
+               
+               if (dimer_particle .and. (mod(p,2) == 1)) then
+                  n_mobile_particles = n_mobile_particles + 1 
+
+                  ! Case where one end of the dimer (r1) has bound actin. It is no longer species 1 but the even one is.
+                  if (box%particle(p)%species /= 1 .and. box%particle(p+1)%species == 1) then 
+                     immobile = 1
+
+                  ! Case where the other end of dimer (r2) has bound actin. 
+                  else if (box%particle(p)%species == 1 .and. box%particle(p+1)%species /= 1) then 
+                     immobile = 2
+                        
+                  ! Case where we have a free-floating CL. Both ends are species 1. 
+                  else 
+                     immobile = 0
+                  
+                  end if
+                  
+                  nsteps = nsteps_CLs
+
+                  r_d = box%particle(p)%position - box%particle(p + 1)%position
+
+                  ! Unwrap Periodic BCs
+                  do i = 1, nDimensions
+                     if (r_d(i) > sampleCellLength(i) / 2) r_d(i) = r_d(i) - sampleCellLength(i)
+                     if (r_d(i) < -sampleCellLength(i) / 2) r_d(i) = r_d(i) + sampleCellLength(i)
+                  end do
+
+                  box%particle(p)%position = r_d + box%particle(p + 1)%position    
+
+                  if (debug_CLs) write(*,*) "Moving dimer made of particles ", p, p+1, " with dt=", dtime/nsteps
+                  call moveDimer(dtime/nsteps, nsteps, immobile, r_1=box%particle(p)%position, r_2=box%particle(p + 1)%position)
+                                    
+
+               else if (dimer_particle .and. (mod(p,2) == 0)) then
+                  ! Do nothing, since particle was already moved above when p-1 was moved
+                  n_mobile_particles = n_mobile_particles + 1 
+                  
+               ! If no springs (add_springs is false) then just diffuse normally all species 
+               else if(D > 0) then 
+                  if (debug_CLs) write(*,*) "Moving particle ", p 
+                  call NormalRNGVec(numbers=disp, n_numbers=nDimensions) ! Mean zero and variance one
+                  disp = sqrt(2*D*dtime)*disp ! Make the variance be 2*D*time
+                  box%particle(p)%position = box%particle(p)%position + disp
+                  n_mobile_particles = n_mobile_particles + 1 
+               end if
+
+               ! In all 'else' cases, we would do nothing. (D < 0 makes no sense, and D = 0 is immobile)
+               ! And if add_springs = .true. but we are NOT odd, we shouldn't
+               ! do anything as we would have done that in the odd step. 
+               ! So there is no else.
+               
+            end if
+               
+            
+         end if
+      end do
+      
+      if(n_mobile_particles==0) stop "No more mobile particles left" ! Donev/Kishore
+      
+   end subroutine brownianMover
+
+   ! Kishore: This is just what we used before, (havent touched this)
+   subroutine brownianMoverOld(box,dtime)
+      type (DoiBox), target :: box
       real (wp), intent(in) :: dtime
       
       ! Local variables
@@ -1054,7 +1301,7 @@ contains
             
          end if
       end do
-   end subroutine brownianMover
+   end subroutine brownianMoverOld
    
 end subroutine mover
 
@@ -1148,6 +1395,7 @@ subroutine reaction_RDME(box,timestep)
    integer :: i, j, k
    integer, dimension(nMaxDimensions) :: cellIndices
    
+   ! DONEV: TODO
    ! PARALLEL in principle: This loop can be parallelized since the reactions are local
    !   but not important since this is not our goal and we can do this in parallel better in other ways
    ! One must watch out for any global operations in reaction_RDME_cell such as calls to updateFreeParticle
@@ -1737,11 +1985,16 @@ subroutine reaction_IRDME(box,timestep)
       if (propensity(0)>0.0_wp) then
          call calculateTau(propensity(0),tau)
          tau = box%elapsedTime+tau ! box%elapsedTime=0 but add it for code clarity
-         if( tau <= timestep) call insertInHeap(box%heap,iCell,tau)
+         if( tau <= timestep) then
+            ! write(*,*) "Scheduling event for cell ", iCell, " at t +=", tau ! DEBUG
+            call insertInHeap(box%heap,iCell,tau)
+         end if   
       end if
    end do
 
    if (isAssertsOn) call LLCtest(box)
+   
+   !write(*,*) "Starting SSA loop" ! DEBUG
    
    ! This loop is very difficult to parallelize
    ! Loop over events:
@@ -1785,6 +2038,9 @@ subroutine reaction_IRDME(box,timestep)
       choiceReactionTable = reactionTable(choiceOfReaction,:)
       speciesOfReagent_1 = choiceReactionTable(1); speciesOfReagent_2 = choiceReactionTable(2)
       speciesOfProduct_1 = choiceReactionTable(3); speciesOfProduct_2 = choiceReactionTable(4)
+
+      ! DEBUG:
+      !write(*,*) "Processing reaction of type ", typeOfChoice, " for cell ", reactionCell_1, " of species ", speciesOfReagent_1, speciesOfReagent_2
 
       ! Create product particles or remove reacted particles, depending on the type of reaction:
       select case(typeOfChoice)
@@ -2172,6 +2428,7 @@ subroutine reaction_IRDME(box,timestep)
 
       end select
 
+
       ! Now we need to update all entries in the event queue that got changed:
       if (reactionCell_1==reactionCell_2) then
          reactionCell_2 = 0
@@ -2218,6 +2475,8 @@ contains
          case (1)
             propensity(iReaction)=box%numberPerCellList(reagent_1,cellIndex)*IRDME_reactionRate(iReaction)
          case (2)
+            ! DEBUG:
+            ! write(*,*) "cellIndex=", cellIndex, " n_p1(", reagent_1,")=",box%numberPerCellList(reagent_1,cellIndex), "n_p2(",reagent_2,")=", nNeighbors(reagent_2)
             pairs = box%numberPerCellList(reagent_1,cellIndex) * nNeighbors(reagent_2)
             ! Assuming four cases:
             ! For A+B->?, which is duplicated as A+B-> or B+A->
@@ -2324,6 +2583,7 @@ contains
          cellIndex = updateList(iCell)
       
          call calculatePropensity_IRDME(box,cellIndex,propensity,nNeighbors)
+         ! write(*,*) "Scheduling new event for cell ", cellIndex, propensity,nNeighbors ! DEBUG
          if (propensity(0)<=0.0_wp) then
             call deleteFromHeap(box%heap,cellIndex) ! Safe to call even if deleted already
          else
@@ -2333,6 +2593,7 @@ contains
             if(tau > timestep) then ! No need to insert this into the heap at all
                call deleteFromHeap(box%heap,cellIndex) ! Safe to call even if deleted already
             else
+               !write(*,*) "Inserting again with t=", tau ! DEBUG
                call insertInHeap(box%heap,cellIndex,tau) ! This will call updateHeap if already in the heap
             end if   
          end if
@@ -2538,8 +2799,6 @@ subroutine updateFreeParticle(box)
       box%freeParticle = box%freeParticle + 1
       if (box%freeParticle>ubound(box%particle,1)) then
          write (*,*) 'Allocated space for particle is:', ubound(box%particle,1)
-         !temp=-1
-         !write(temp,*) "BACKTRACE"
          stop 'Ran out of particle storage, add more'
       end if
    else ! Here freeParticle is the head of a list of free particles

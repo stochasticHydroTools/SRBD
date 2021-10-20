@@ -9,6 +9,7 @@
 /
 
 
+! IMPORTANT: This assumes code is compiled with n_species=4, n_reactions=2
 &DoiBoxOptions
    reactionScheme = 0  ! 0 for S-BD-RME, 1 for SRBD
 
@@ -23,14 +24,14 @@
    reactionRate(1:2) = 1 0   ! Large rate will make it react as soon as it overlaps
    
    inputTimestep = 0.23 ! Time step size dt dt=1/4*dx^2/D
-   ! The following is only used for SRBD
-   speciesDiameter(1:4) = 0.01 0.008 0.01 0.008 ! Reactive diameters of particles
-
+   
+   ! The following is only used for SRBD: Does NOT matter for S-BD-RME!
+   !speciesDiameter(1:4) = 0.01 0.008 0.01 0.008 ! Reactive diameters of particles
    speciesDiffusivity(1:4) = 1.0e-3 0.0 0.0 0.0 ! The first number if only used if add_spring=false and there are free monomers   
    
    !---------------------
    sampleCellLength(1:3) = 2.0 2.0 2.0 ! This is the system size (there is only one sampling cell); must be bigger than 3*dx
-   nBlockingCollision(1:3) = 66 66 66 ! Number of DOI cells per block of sampling cells   
+   nBlockingCollision(1:3) = 200 200 200 ! Number of DOI cells per block of sampling cells   
    ! dx = nBlockingSample * sampleCellLength / nBlockingCollision
    ! Remember that dx must be larger than the largest reaction diameter
    nSampleCells(1:3) = 1 1 1
@@ -39,27 +40,40 @@
    ! Misc:
    fractionExtraParticles = 0.0
    nMaxParticlesPerCell = 10 ! Set to zero to estimate numerically
-   strangSplitting = .false.
+   strangSplitting = F
+   randomShift = T ! Keep to T to improve (but not fix) the isotropy of the reactions
    diffuseByHopping = 0 ! 0=continuous walk, 1=discrete walk, 2=remain on lattice
 /
 
 ! Parameters for cross-linker dimers
+! This is NOT used in this input file because we are doing monomers (add_springs = F)
 &diffCLs
-  k_s = 10.0,
-  l0 =  0.1,
-  a_1 = 0.10,
-  a_2 = 0.10,
-  visc = 1.0,
-  sde_integrator_enum = 5 != 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 4: rotationVibration, 5: rotationVibration w explicit
+
   add_springs = F ! If false, do monomers for the CLs, not dimers
-  debug_CLs = .false.
+
   n_dimers = 100
-  n_fiber_blobs = 3150 ! 1913 ! Max number in FibersDiameterApart2.txt
-  nsteps_CLs = 1
+  ! This controls how many fibers to read (each fiber has 126 blobs):
+  n_fiber_blobs = 3150 !=25 fibers
+  ! What file to read the fibers from:
   blobInitializer = "FibersDiameterApart.txt"
+
   outputFile = "DimerSimulationIsotropic.txt"
   nOutputCLsStep = 1 ! Output CL positions every so many time steps
-  anisotropicMobility = .false.
+  debug_CLs = F
+
+  ! Diffusion of the actual dimers if add_springs=T, otherwise NOT used:
+  ! See Kishore's writeup for details before using
+  anisotropicMobility = F ! If F, dimer is two spheres+spring, otherwise, dimer is a stretchable "cylinder" 
+  k_s = 10.0 ! Spring constant
+  l0 =  0.1 ! Equilibrium spring length
+  a_1 = 0.10 ! Radius of first binding domain
+  a_2 = 0.10 ! Radius of second binding domain
+  ! Diffusion ~ (kbT = 4.0E-3_wp pN*um) / (6*pi*visc*a) but see Kishore's writeup
+  visc = 1.0 ! Fluid viscosity (controls diffusion coefficient)
+  ! 1: Euler-Maruyama, 2: Explicit Midpoint, 3: Implicit Trapezoidal, 
+  ! 4: rotationVibration (trapezoidal), 5: rotationVibration (midpoint)
+  sde_integrator_enum = 5 ! 5 is found most accurate by Kishore
+  nsteps_CLs = 1 ! How many substeps to take to evolve dimer for each reaction step
 /
 &
 
@@ -97,7 +111,7 @@
    nSavedSnapshots=100
    
    outputFolder = "./"
-   filePrefix = "AB" ! Prefix for all file names
+   filePrefix = "Monomers" ! Prefix for all file names
    axisToPrint = 2 ! 1=x, 2=y, 3=z axis
    periodic = T ! Is the system periodic along the y axes
 

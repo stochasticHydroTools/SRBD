@@ -1118,12 +1118,18 @@ contains
       !    It is a loop over particles, some of which can be no-ops
       !    So it is important here to use cyclic distribution over threads
       n_mobile_particles=0 ! Donev/Kishore: Count number of still mobile particles
-      do p =lbound(box%particle,1),ubound(box%particle,1)
+      ParticleLoop: do p =lbound(box%particle,1),ubound(box%particle,1)
          if (box%particle(p)%species > 0) then
             D = speciesDiffusivity(box%particle(p)%species)
             
             disp = 0.0_wp            
             if(diffuseByHopping>=1) then ! Diffuse by random hops on a lattice   
+            
+               if(D>0.0_wp) then
+                  n_mobile_particles = n_mobile_particles + 1
+               else ! Don't waste time on frozen particles like fiber blobs
+                  cycle ParticleLoop
+               end if     
             
                ! Compute the probability of jumping in each direction:
                k=0  
@@ -1157,8 +1163,7 @@ contains
 
                box%particle(p)%position = box%particle(p)%position + disp
                      
-            else ! Continuous random walk  
-                     
+            else ! Continuous random walk                       
 
                ! Cross linkers must come in pairs, but one could be attached to actin (seperate species)
                ! In this case, we would still want to simulate as a spring in some cases. 
@@ -1230,13 +1235,14 @@ contains
                ! do anything as we would have done that in the odd step. 
                ! So there is no else.
                
-            end if
-               
+            end if               
             
          end if
-      end do
+      end do ParticleLoop
       
-      if(n_mobile_particles==0) stop "No more mobile particles left" ! Donev/Kishore
+      ! This is dangerous because mobile particles can be created in the reaction step, so disable generically
+      ! It is useful for debugging
+      !if(n_mobile_particles==0) stop "No more mobile particles left" ! Donev/Kishore
       
    end subroutine brownianMover
 
